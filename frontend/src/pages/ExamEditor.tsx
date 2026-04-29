@@ -9,6 +9,7 @@ import {
   type AttemptRow,
   type AttemptResult,
 } from "../api";
+import { RichText } from "../components/RichText";
 
 type Tab = "info" | "questions" | "codes" | "results";
 
@@ -149,6 +150,26 @@ function InfoTab({ exam, reload, onDelete }: { exam: ExamFull; reload: () => voi
 function QuestionsTab({ exam, reload }: { exam: ExamFull; reload: () => void }) {
   const [editing, setEditing] = useState<Question | null>(null);
   const [adding, setAdding] = useState(false);
+  const [filter, setFilter] = useState<"all" | "missing" | "mc" | "tf">("all");
+  const [search, setSearch] = useState("");
+
+  const visibleQuestions = useMemo(() => {
+    return exam.questions
+      .map((q, idx) => ({ q, idx }))
+      .filter(({ q }) => {
+        if (filter === "missing" && q.type === "mc" && q.data.answer) return false;
+        if (filter === "missing" && q.type === "tf") return false;
+        if (filter === "mc" && q.type !== "mc") return false;
+        if (filter === "tf" && q.type !== "tf") return false;
+        if (search) {
+          const txt = (q.data.question as string || "").toLowerCase();
+          if (!txt.includes(search.toLowerCase())) return false;
+        }
+        return true;
+      });
+  }, [exam.questions, filter, search]);
+
+  const numMissing = exam.questions.filter((q) => q.type === "mc" && !q.data.answer).length;
 
   return (
     <div>
@@ -158,6 +179,45 @@ function QuestionsTab({ exam, reload }: { exam: ExamFull; reload: () => void }) 
           {exam.questions.filter((q) => q.type === "mc").length} trắc nghiệm, {" "}
           {exam.questions.filter((q) => q.type === "tf").length} đúng/sai
         </span>
+        {numMissing > 0 && (
+          <span className="badge danger">⚠ {numMissing} câu thiếu đáp án</span>
+        )}
+      </div>
+
+      <div className="card" style={{ padding: 12, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+        <span className="muted" style={{ fontSize: 13 }}>Lọc:</span>
+        <button
+          className={`btn sm ${filter === "all" ? "" : "secondary"}`}
+          onClick={() => setFilter("all")}
+        >
+          Tất cả ({exam.questions.length})
+        </button>
+        <button
+          className={`btn sm ${filter === "mc" ? "" : "secondary"}`}
+          onClick={() => setFilter("mc")}
+        >
+          Trắc nghiệm
+        </button>
+        <button
+          className={`btn sm ${filter === "tf" ? "" : "secondary"}`}
+          onClick={() => setFilter("tf")}
+        >
+          Đúng/Sai
+        </button>
+        <button
+          className={`btn sm ${filter === "missing" ? "danger" : "secondary"}`}
+          onClick={() => setFilter("missing")}
+          disabled={numMissing === 0}
+        >
+          Thiếu đáp án ({numMissing})
+        </button>
+        <input
+          className="input"
+          placeholder="Tìm trong nội dung câu hỏi…"
+          style={{ flex: 1, minWidth: 200 }}
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
       </div>
 
       {adding && (
@@ -184,7 +244,12 @@ function QuestionsTab({ exam, reload }: { exam: ExamFull; reload: () => void }) 
       )}
 
       <div>
-        {exam.questions.map((q, idx) => (
+        {visibleQuestions.length === 0 && (
+          <div className="card muted" style={{ textAlign: "center", padding: 24 }}>
+            Không có câu hỏi nào khớp với bộ lọc.
+          </div>
+        )}
+        {visibleQuestions.map(({ q, idx }) => (
           <div key={q.id} className="card" style={{ padding: 14 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
               <div>
@@ -206,7 +271,7 @@ function QuestionsTab({ exam, reload }: { exam: ExamFull; reload: () => void }) 
                 </button>
               </div>
             </div>
-            <div className="question-text">{(q.data.question as string) || ""}</div>
+            <div className="question-text"><RichText text={(q.data.question as string) || ""} /></div>
             {q.type === "mc" && (
               <div className="stack">
                 {Object.entries((q.data.options as Record<string, string>) || {}).map(([letter, text]) => (
@@ -215,10 +280,15 @@ function QuestionsTab({ exam, reload }: { exam: ExamFull; reload: () => void }) 
                     className={`option ${letter === q.data.answer ? "correct-highlight" : ""}`}
                   >
                     <span className="letter">{letter}.</span>
-                    <span style={{ flex: 1 }}>{text}</span>
+                    <span style={{ flex: 1 }}><RichText text={text} /></span>
                     {letter === q.data.answer && <span className="badge success">✓ Đáp án</span>}
                   </div>
                 ))}
+                {!q.data.answer && (
+                  <div className="error" style={{ marginTop: 6 }}>
+                    Chưa có đáp án — hãy bấm "Sửa" để chọn đáp án đúng.
+                  </div>
+                )}
               </div>
             )}
             {q.type === "tf" && (
@@ -229,7 +299,7 @@ function QuestionsTab({ exam, reload }: { exam: ExamFull; reload: () => void }) 
                     return (
                       <div key={letter} className="option">
                         <span className="letter">{letter})</span>
-                        <span style={{ flex: 1 }}>{text}</span>
+                        <span style={{ flex: 1 }}><RichText text={text} /></span>
                         <span className={`badge ${correct ? "success" : "danger"}`}>
                           {correct ? "Đúng" : "Sai"}
                         </span>
@@ -243,6 +313,50 @@ function QuestionsTab({ exam, reload }: { exam: ExamFull; reload: () => void }) 
         ))}
       </div>
     </div>
+  );
+}
+
+function MediaButtons({
+  onInsert,
+  size = "sm",
+}: {
+  onInsert: (snippet: string) => void;
+  size?: "sm" | "xs";
+}) {
+  const [busy, setBusy] = useState(false);
+  async function pickImage() {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.onchange = async () => {
+      const f = input.files?.[0];
+      if (!f) return;
+      setBusy(true);
+      try {
+        const { url } = await api.uploadImage(f);
+        onInsert(`[IMG:${url}]`);
+      } catch (e) {
+        alert((e as Error).message);
+      } finally {
+        setBusy(false);
+      }
+    };
+    input.click();
+  }
+  function addFormula() {
+    const text = prompt("Nhập công thức (VD: x^2 + y^2 = 1):");
+    if (text && text.trim()) onInsert(`[MATH:${text.trim()}]`);
+  }
+  const klass = size === "xs" ? "btn sm secondary" : "btn sm secondary";
+  return (
+    <span style={{ display: "inline-flex", gap: 4 }}>
+      <button type="button" className={klass} onClick={pickImage} disabled={busy} title="Chèn ảnh">
+        {busy ? "Đang tải…" : "🖼 Ảnh"}
+      </button>
+      <button type="button" className={klass} onClick={addFormula} title="Chèn công thức">
+        ƒ Công thức
+      </button>
+    </span>
   );
 }
 
@@ -329,8 +443,16 @@ function QuestionForm({
         </div>
       </div>
       <div className="field">
-        <label>Nội dung câu hỏi</label>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <label style={{ marginBottom: 0 }}>Nội dung câu hỏi</label>
+          <MediaButtons onInsert={(s) => setText((t) => (t ? t + " " + s : s))} />
+        </div>
         <textarea value={text} onChange={(e) => setText(e.target.value)} style={{ minHeight: 100 }} />
+        {text && (
+          <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+            Xem trước: <RichText text={text} />
+          </div>
+        )}
       </div>
 
       {type === "mc" ? (
@@ -353,8 +475,17 @@ function QuestionForm({
                 value={mcOptions[letter] || ""}
                 onChange={(e) => setMcOptions({ ...mcOptions, [letter]: e.target.value })}
               />
+              <MediaButtons
+                size="xs"
+                onInsert={(s) =>
+                  setMcOptions((m) => ({ ...m, [letter]: (m[letter] || "") + (m[letter] ? " " : "") + s }))
+                }
+              />
             </div>
           ))}
+          <div className="muted" style={{ fontSize: 12 }}>
+            Đáp án đúng hiện tại: <strong>{mcAnswer}</strong>. Bấm vào nút radio bên trái để đổi đáp án nếu hệ thống nhận diện sai.
+          </div>
         </div>
       ) : (
         <div className="stack">
@@ -375,6 +506,15 @@ function QuestionForm({
                 className="input"
                 value={tfStatements[letter] || ""}
                 onChange={(e) => setTfStatements({ ...tfStatements, [letter]: e.target.value })}
+              />
+              <MediaButtons
+                size="xs"
+                onInsert={(s) =>
+                  setTfStatements((m) => ({
+                    ...m,
+                    [letter]: (m[letter] || "") + (m[letter] ? " " : "") + s,
+                  }))
+                }
               />
             </div>
           ))}

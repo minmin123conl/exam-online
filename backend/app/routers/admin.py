@@ -1,10 +1,12 @@
 """Admin API routes: login, CRUD exams/questions/codes, view attempts."""
+import os
 import secrets
 import string
+import tempfile
 from datetime import datetime
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -17,6 +19,10 @@ from ..auth import (
     verify_password,
 )
 from ..db import get_db
+from ..docx_parser import parse_docx
+
+UPLOAD_DIR = os.environ.get("EXAM_UPLOAD_DIR", "/data/uploads")
+UPLOAD_URL_PREFIX = os.environ.get("EXAM_UPLOAD_URL_PREFIX", "/uploads")
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -166,6 +172,124 @@ def duplicate_exam(exam_id: int, db: Session = Depends(get_db), _: models.Admin 
     db.commit()
     db.refresh(new_exam)
     return _exam_summary(new_exam, db)
+
+
+# ---- Upload .docx → create exam ----
+@router.post("/exams/upload")
+async def upload_exam_docx(
+    file: UploadFile = File(...),
+    title: str = Form(""),
+    description: str = Form(""),
+    duration_minutes: int = Form(50),
+    is_active: bool = Form(True),
+    show_leaderboard: bool = Form(True),
+    db: Session = Depends(get_db),
+    _: models.Admin = Depends(get_current_admin),
+):
+    if not file.filename or not file.filename.lower().endswith(".docx"):
+        raise HTTPException(400, "Vui lòng tải lên file .docx")
+    contents = await file.read()
+    if len(contents) > 30 * 1024 * 1024:
+        raise HTTPException(400, "File quá lớn (>30MB)")
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as tmp:
+        tmp.write(contents)
+        tmp_path = tmp.name
+    try:
+        parsed = parse_docx(tmp_path, UPLOAD_DIR, UPLOAD_URL_PREFIX)
+    except Exception as e:
+        raise HTTPException(400, f"Không đọc được file docx: {e}")
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+    exam_title = title.strip() or os.path.splitext(file.filename)[0]
+    exam = models.Exam(
+        title=exam_title,
+        description=description,
+        duration_minutes=duration_minutes,
+        is_active=is_active,
+        show_leaderboard=show_leaderboard,
+    )
+    db.add(exam)
+    db.flush()
+
+    order = 1
+    n_mc = 0
+    n_tf = 0
+    n_missing_answer = 0
+    for section in parsed.get("sections", []):
+        for q in section["questions"]:
+            db.add(models.Question(
+                exam_id=exam.id,
+                order_index=order,
+                type="mc",
+                section=section["title"],
+                data={
+                    "question": q["question"],
+                    "options": q["options"],
+                    "answer": q.get("answer"),
+                    "images": q.get("images", []),
+                },
+                points=1.0,
+            ))
+            order += 1
+            n_mc += 1
+            if not q.get("answer"):
+                n_missing_answer += 1
+    for q in parsed.get("tf_questions", []):
+        db.add(models.Question(
+            exam_id=exam.id,
+            order_index=order,
+            type="tf",
+            section="Phần đúng/sai",
+            data={
+                "question": q["question"],
+                "statements": q["statements"],
+                "answers": q["answers"],
+                "images": q.get("images", []),
+            },
+            points=1.0,
+        ))
+        order += 1
+        n_tf += 1
+    db.commit()
+    db.refresh(exam)
+    return {
+        "exam": _exam_summary(exam, db),
+        "stats": {
+            "num_mc": n_mc,
+            "num_tf": n_tf,
+            "missing_answers": n_missing_answer,
+        },
+        "warnings": parsed.get("warnings", []),
+    }
+
+
+@router.post("/uploads/image")
+async def upload_image(
+    file: UploadFile = File(...),
+    _: models.Admin = Depends(get_current_admin),
+):
+    if not file.filename:
+        raise HTTPException(400, "Thiếu file")
+    contents = await file.read()
+    if len(contents) > 10 * 1024 * 1024:
+        raise HTTPException(400, "Ảnh quá lớn (>10MB)")
+    import hashlib
+    digest = hashlib.sha1(contents).hexdigest()[:16]
+    ext = os.path.splitext(file.filename)[1].lower() or ".png"
+    if ext not in {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"}:
+        raise HTTPException(400, "Định dạng ảnh không hỗ trợ")
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
+    filename = f"{digest}{ext}"
+    fpath = os.path.join(UPLOAD_DIR, filename)
+    if not os.path.exists(fpath):
+        with open(fpath, "wb") as f:
+            f.write(contents)
+    return {"url": f"{UPLOAD_URL_PREFIX.rstrip('/')}/{filename}"}
 
 
 # ---- Questions CRUD ----

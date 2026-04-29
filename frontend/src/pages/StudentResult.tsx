@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api, type AttemptResult, type AttemptDetail } from "../api";
+import { RichText } from "../components/RichText";
 
 type Filter = "all" | "wrong" | "right";
 
@@ -110,7 +111,7 @@ export default function StudentResult() {
                   </div>
                   {d.section && <span className="muted" style={{ fontSize: 12 }}>{d.section}</span>}
                 </div>
-                <div className="question-text">{d.question}</div>
+                <div className="question-text"><RichText text={d.question} /></div>
                 {d.type === "mc" && d.options && (
                   <div>
                     {Object.entries(d.options).map(([letter, text]) => {
@@ -122,7 +123,7 @@ export default function StudentResult() {
                           className={`option ${isCorrect ? "correct-highlight" : isYour && !isCorrect ? "wrong-highlight" : ""}`}
                         >
                           <span className="letter">{letter}.</span>
-                          <span style={{ flex: 1 }}>{text}</span>
+                          <span style={{ flex: 1 }}><RichText text={text} /></span>
                           {isCorrect && <span className="badge success">Đáp án đúng</span>}
                           {isYour && !isCorrect && <span className="badge danger">Bạn chọn</span>}
                         </div>
@@ -148,7 +149,7 @@ export default function StudentResult() {
                           className={`option ${ok ? "correct-highlight" : "wrong-highlight"}`}
                         >
                           <span className="letter">{letter})</span>
-                          <span style={{ flex: 1 }}>{text}</span>
+                          <span style={{ flex: 1 }}><RichText text={text} /></span>
                           <span className="muted" style={{ whiteSpace: "nowrap" }}>
                             Đáp án: <strong>{correct ? "Đúng" : "Sai"}</strong>
                           </span>

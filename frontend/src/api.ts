@@ -89,6 +89,48 @@ export const api = {
   duplicateExam(id: number) {
     return request<ExamSummary>(`/api/admin/exams/${id}/duplicate`, { method: "POST" }, true);
   },
+  async uploadExamDocx(
+    file: File,
+    meta: { title?: string; duration_minutes?: number; description?: string } = {},
+  ): Promise<{
+    exam: ExamSummary;
+    stats: { num_mc: number; num_tf: number; missing_answers: number };
+    warnings: string[];
+  }> {
+    const fd = new FormData();
+    fd.append("file", file);
+    if (meta.title) fd.append("title", meta.title);
+    if (meta.description) fd.append("description", meta.description);
+    if (meta.duration_minutes) fd.append("duration_minutes", String(meta.duration_minutes));
+    const t = getToken();
+    const res = await fetch(`${API_BASE}/api/admin/exams/upload`, {
+      method: "POST",
+      headers: t ? { Authorization: `Bearer ${t}` } : {},
+      body: fd,
+    });
+    if (!res.ok) {
+      let msg = "Tải lên thất bại";
+      try { msg = (await res.json()).detail || msg; } catch { /* empty */ }
+      throw new Error(msg);
+    }
+    return await res.json();
+  },
+  async uploadImage(file: File): Promise<{ url: string }> {
+    const fd = new FormData();
+    fd.append("file", file);
+    const t = getToken();
+    const res = await fetch(`${API_BASE}/api/admin/uploads/image`, {
+      method: "POST",
+      headers: t ? { Authorization: `Bearer ${t}` } : {},
+      body: fd,
+    });
+    if (!res.ok) {
+      let msg = "Tải ảnh thất bại";
+      try { msg = (await res.json()).detail || msg; } catch { /* empty */ }
+      throw new Error(msg);
+    }
+    return await res.json();
+  },
   // Questions
   addQuestion(examId: number, body: QuestionIn) {
     return request<Question>(`/api/admin/exams/${examId}/questions`, { method: "POST", body: JSON.stringify(body) }, true);

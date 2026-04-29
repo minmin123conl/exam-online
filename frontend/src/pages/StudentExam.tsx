@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api, type StartExamResponse, type PublicQuestion, type PublicQuestionMC, type PublicQuestionTF } from "../api";
+import { RichText } from "../components/RichText";
 
 type Answers = Record<string, string | Record<string, boolean>>;
 
@@ -132,7 +133,7 @@ export default function StudentExam() {
                 {q.type === "mc" ? "Trắc nghiệm" : "Đúng/Sai"}
               </span>
             </div>
-            <div className="question-text">{q.question}</div>
+            <div className="question-text"><RichText text={q.question} /></div>
             {q.type === "mc" ? <McInput q={q} answer={answers[String(q.id)] as string} onChange={(l) => setMcAnswer(q.id, l)} /> : <TfInput q={q} answer={answers[String(q.id)] as Record<string, boolean>} onChange={(l, v) => setTfAnswer(q.id, l, v)} />}
             <div style={{ display: "flex", justifyContent: "space-between", marginTop: 16 }}>
               <button
@@ -194,7 +195,7 @@ function McInput({
         <label key={letter} className={`option ${answer === letter ? "selected" : ""}`}>
           <input type="radio" name={`q${q.id}`} checked={answer === letter} onChange={() => onChange(letter)} />
           <span className="letter">{letter}.</span>
-          <span style={{ flex: 1 }}>{text}</span>
+          <span style={{ flex: 1 }}><RichText text={text} /></span>
         </label>
       ))}
     </div>
@@ -219,7 +220,7 @@ function TfInput({
         return (
           <div key={letter} className="option" style={{ cursor: "default" }}>
             <span className="letter">{letter})</span>
-            <span style={{ flex: 1 }}>{text}</span>
+            <span style={{ flex: 1 }}><RichText text={text} /></span>
             <div style={{ display: "flex", gap: 6 }}>
               <button
                 className={`btn sm ${cur === true ? "" : "secondary"}`}
