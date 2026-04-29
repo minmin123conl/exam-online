@@ -46,9 +46,6 @@ export default function AdminLogin() {
             {loading ? "Đang đăng nhập…" : "Đăng nhập"}
           </button>
         </form>
-        <div className="muted" style={{ marginTop: 14 }}>
-          Mặc định: <code>admin</code> / <code>admin123</code>. Hãy đổi mật khẩu ngay sau khi đăng nhập.
-        </div>
       </div>
     </div>
   );
