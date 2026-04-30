@@ -2,6 +2,11 @@ const DEFAULT_API = "http://localhost:8000";
 export const API_BASE: string = ((import.meta as unknown as { env: Record<string, string> }).env.VITE_API_URL || DEFAULT_API).replace(/\/$/, "");
 
 const TOKEN_KEY = "exam_admin_token";
+const ROLE_KEY = "exam_admin_role";
+const USERNAME_KEY = "exam_admin_username";
+const MUST_CHANGE_KEY = "exam_admin_must_change";
+
+export type AdminRole = "super" | "manager" | "viewer";
 
 export function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
@@ -10,6 +15,29 @@ export function getToken(): string | null {
 export function setToken(token: string | null) {
   if (token) localStorage.setItem(TOKEN_KEY, token);
   else localStorage.removeItem(TOKEN_KEY);
+}
+
+export function getRole(): AdminRole {
+  return (localStorage.getItem(ROLE_KEY) as AdminRole) || "super";
+}
+
+export function getUsername(): string {
+  return localStorage.getItem(USERNAME_KEY) || "";
+}
+
+export function getMustChange(): boolean {
+  return localStorage.getItem(MUST_CHANGE_KEY) === "1";
+}
+
+export function setMustChange(v: boolean) {
+  localStorage.setItem(MUST_CHANGE_KEY, v ? "1" : "0");
+}
+
+export function clearAuth() {
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(ROLE_KEY);
+  localStorage.removeItem(USERNAME_KEY);
+  localStorage.removeItem(MUST_CHANGE_KEY);
 }
 
 async function request<T>(path: string, opts: RequestInit = {}, auth = false): Promise<T> {
@@ -56,12 +84,37 @@ export const api = {
       }
       throw new Error(msg);
     }
-    const data = (await res.json()) as { access_token: string };
+    const data = (await res.json()) as {
+      access_token: string;
+      role: AdminRole;
+      must_change_password: boolean;
+      username: string;
+    };
     setToken(data.access_token);
+    localStorage.setItem(ROLE_KEY, data.role || "super");
+    localStorage.setItem(USERNAME_KEY, data.username || username);
+    setMustChange(!!data.must_change_password);
     return data;
   },
   me() {
-    return request<{ username: string }>("/api/admin/me", {}, true);
+    return request<{ username: string; role: AdminRole; must_change_password: boolean }>(
+      "/api/admin/me",
+      {},
+      true,
+    );
+  },
+  // Admin user management (super only)
+  listAdminUsers() {
+    return request<AdminUserOut[]>("/api/admin/users", {}, true);
+  },
+  createAdminUser(body: { username: string; password: string; role: AdminRole }) {
+    return request<AdminUserOut>("/api/admin/users", { method: "POST", body: JSON.stringify(body) }, true);
+  },
+  updateAdminUser(id: number, body: { role?: AdminRole; new_password?: string }) {
+    return request<AdminUserOut>(`/api/admin/users/${id}`, { method: "PATCH", body: JSON.stringify(body) }, true);
+  },
+  deleteAdminUser(id: number) {
+    return request<{ ok: boolean }>(`/api/admin/users/${id}`, { method: "DELETE" }, true);
   },
   changePassword(old_password: string, new_password: string) {
     return request<{ ok: boolean }>(
@@ -200,6 +253,14 @@ export const api = {
 };
 
 // ===== Types =====
+export interface AdminUserOut {
+  id: number;
+  username: string;
+  role: AdminRole;
+  must_change_password: boolean;
+  created_at: string;
+}
+
 export interface ExamIn {
   title: string;
   description: string;

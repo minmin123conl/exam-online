@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams, Link } from "react-router-dom";
 import {
   api,
+  getRole,
   type ExamCode,
   type ExamFull,
   type Question,
@@ -10,6 +11,7 @@ import {
   type AttemptResult,
 } from "../api";
 import { RichText } from "../components/RichText";
+import { IdleWarningBanner, useIdleLogout } from "../hooks/useIdleLogout";
 
 type Tab = "info" | "questions" | "codes" | "results";
 
@@ -17,6 +19,9 @@ export default function ExamEditor() {
   const { examId } = useParams();
   const id = Number(examId);
   const nav = useNavigate();
+  const role = getRole();
+  const canWrite = role === "super" || role === "manager";
+  const { warnSeconds, stayActive } = useIdleLogout();
   const [tab, setTab] = useState<Tab>("info");
   const [exam, setExam] = useState<ExamFull | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -39,9 +44,11 @@ export default function ExamEditor() {
 
   return (
     <div className="container wide">
+      <IdleWarningBanner warnSeconds={warnSeconds} onStay={stayActive} />
       <div className="toolbar">
         <Link to="/admin" className="btn sm secondary">← Về danh sách</Link>
         <h2 style={{ margin: 0, flex: 1 }}>{exam.title}</h2>
+        {!canWrite && <span className="badge warning">Chế độ chỉ xem</span>}
         <span className="muted">ID #{exam.id}</span>
       </div>
 

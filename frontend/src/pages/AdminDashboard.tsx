@@ -1,9 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { api, getToken, setToken, type ExamSummary } from "../api";
+import { api, clearAuth, getMustChange, getRole, getToken, getUsername, type ExamSummary } from "../api";
+import { IdleWarningBanner, useIdleLogout } from "../hooks/useIdleLogout";
 
 export default function AdminDashboard() {
   const nav = useNavigate();
+  const { warnSeconds, stayActive } = useIdleLogout();
+  const role = getRole();
+  const myName = getUsername();
+  const canWrite = role === "super" || role === "manager";
   const [exams, setExams] = useState<ExamSummary[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
@@ -29,6 +34,10 @@ export default function AdminDashboard() {
   useEffect(() => {
     if (!getToken()) {
       nav("/admin/login");
+      return;
+    }
+    if (getMustChange()) {
+      nav("/admin/change-password?forced=1");
       return;
     }
     load();
@@ -95,16 +104,36 @@ export default function AdminDashboard() {
   }
 
   function logout() {
-    setToken(null);
+    clearAuth();
     nav("/admin/login");
   }
 
+  const roleLabel: Record<string, string> = {
+    super: "Super-admin",
+    manager: "Quản lý đề",
+    viewer: "Chỉ xem",
+  };
+
   return (
     <div className="container">
+      <IdleWarningBanner warnSeconds={warnSeconds} onStay={stayActive} />
       <div className="toolbar">
-        <h2 style={{ margin: 0, flex: 1 }}>Quản trị đề thi</h2>
-        <button className="btn secondary" onClick={() => setShowUpload(true)}>📄 Tải đề từ Word</button>
-        <button className="btn" onClick={() => setShowCreate(true)}>+ Tạo đề mới</button>
+        <h2 style={{ margin: 0, flex: 1 }}>
+          Quản trị đề thi{" "}
+          <span className="muted" style={{ fontSize: 14, fontWeight: 400 }}>
+            — {myName} <span className="badge">{roleLabel[role] || role}</span>
+          </span>
+        </h2>
+        {canWrite && (
+          <button className="btn secondary" onClick={() => setShowUpload(true)}>📄 Tải đề từ Word</button>
+        )}
+        {canWrite && (
+          <button className="btn" onClick={() => setShowCreate(true)}>+ Tạo đề mới</button>
+        )}
+        {role === "super" && (
+          <Link to="/admin/users" className="btn secondary">👥 Tài khoản</Link>
+        )}
+        <Link to="/admin/change-password" className="btn secondary">🔑 Đổi mật khẩu</Link>
         <button className="btn secondary" onClick={logout}>Đăng xuất</button>
       </div>
 
@@ -243,13 +272,19 @@ export default function AdminDashboard() {
                   </td>
                   <td>
                     <div style={{ display: "flex", gap: 6 }}>
-                      <Link to={`/admin/exams/${e.id}`} className="btn sm secondary">Sửa</Link>
-                      <button className="btn sm secondary" onClick={() => duplicate(e.id)}>
-                        Nhân bản
-                      </button>
-                      <button className="btn sm danger" onClick={() => remove(e.id)}>
-                        Xoá
-                      </button>
+                      <Link to={`/admin/exams/${e.id}`} className="btn sm secondary">
+                        {canWrite ? "Sửa" : "Xem"}
+                      </Link>
+                      {canWrite && (
+                        <button className="btn sm secondary" onClick={() => duplicate(e.id)}>
+                          Nhân bản
+                        </button>
+                      )}
+                      {canWrite && (
+                        <button className="btn sm danger" onClick={() => remove(e.id)}>
+                          Xoá
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>

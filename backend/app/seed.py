@@ -3,10 +3,11 @@ import json
 import os
 from pathlib import Path
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from . import models
-from .auth import hash_password
+from .auth import hash_password, verify_password, password_strength_error
 from .db import SessionLocal, engine, Base
 
 
@@ -15,19 +16,42 @@ DEFAULT_ADMIN_PASSWORD = os.environ.get("EXAM_ADMIN_PASSWORD", "admin123")
 SEED_FILE = Path(__file__).resolve().parent.parent / "exam_data.json"
 
 
+def _migrate_admin_columns():
+    """Add new columns to existing admins table for backwards compatibility (SQLite)."""
+    with engine.begin() as conn:
+        cols = {row[1] for row in conn.execute(text("PRAGMA table_info(admins)"))}
+        if cols and "role" not in cols:
+            conn.execute(text("ALTER TABLE admins ADD COLUMN role VARCHAR DEFAULT 'super' NOT NULL"))
+        if cols and "must_change_password" not in cols:
+            conn.execute(text("ALTER TABLE admins ADD COLUMN must_change_password BOOLEAN DEFAULT 0 NOT NULL"))
+
+
 def init_db_and_seed():
     Base.metadata.create_all(bind=engine)
+    _migrate_admin_columns()
     db: Session = SessionLocal()
     try:
         # Admin
-        if not db.query(models.Admin).filter(models.Admin.username == DEFAULT_ADMIN_USERNAME).first():
+        existing_admin = db.query(models.Admin).filter(models.Admin.username == DEFAULT_ADMIN_USERNAME).first()
+        if not existing_admin:
+            weak_default = password_strength_error(DEFAULT_ADMIN_PASSWORD) is not None
             admin = models.Admin(
                 username=DEFAULT_ADMIN_USERNAME,
                 password_hash=hash_password(DEFAULT_ADMIN_PASSWORD),
+                role="super",
+                must_change_password=weak_default,
             )
             db.add(admin)
             db.commit()
-            print(f"[seed] Created default admin: {DEFAULT_ADMIN_USERNAME}")
+            print(f"[seed] Created default admin: {DEFAULT_ADMIN_USERNAME} (must_change_password={weak_default})")
+        else:
+            # Force change if currently using the weak default password
+            if verify_password(DEFAULT_ADMIN_PASSWORD, existing_admin.password_hash) and \
+               password_strength_error(DEFAULT_ADMIN_PASSWORD) is not None:
+                existing_admin.must_change_password = True
+                if not existing_admin.role:
+                    existing_admin.role = "super"
+                db.commit()
         # Seed exam if none exists
         existing = db.query(models.Exam).first()
         if existing:

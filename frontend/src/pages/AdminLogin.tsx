@@ -1,12 +1,16 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 
 export default function AdminLogin() {
   const nav = useNavigate();
-  const [username, setUsername] = useState("admin");
+  const [params] = useSearchParams();
+  const reason = params.get("reason");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [err, setErr] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(
+    reason === "idle" ? "Bạn đã bị đăng xuất do không thao tác trong thời gian dài. Vui lòng đăng nhập lại." : null,
+  );
   const [loading, setLoading] = useState(false);
 
   async function submit(e: React.FormEvent) {
@@ -14,8 +18,12 @@ export default function AdminLogin() {
     setLoading(true);
     setErr(null);
     try {
-      await api.login(username, password);
-      nav("/admin");
+      const data = await api.login(username, password);
+      if (data.must_change_password) {
+        nav("/admin/change-password");
+      } else {
+        nav("/admin");
+      }
     } catch (e) {
       setErr((e as Error).message);
     } finally {

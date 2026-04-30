@@ -7,11 +7,36 @@ from pydantic import BaseModel, Field
 class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"
+    role: str = "super"
+    must_change_password: bool = False
+    username: str = ""
 
 
 class LoginRequest(BaseModel):
     username: str
     password: str
+
+
+class AdminUserOut(BaseModel):
+    id: int
+    username: str
+    role: str
+    must_change_password: bool
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class AdminUserCreate(BaseModel):
+    username: str
+    password: str
+    role: str = "manager"  # super | manager | viewer
+
+
+class AdminUserUpdate(BaseModel):
+    role: Optional[str] = None
+    new_password: Optional[str] = None
 
 
 class QuestionIn(BaseModel):

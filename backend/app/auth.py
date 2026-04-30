@@ -1,5 +1,6 @@
 """Auth helpers for admin login."""
 import os
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -11,6 +12,27 @@ from sqlalchemy.orm import Session
 
 from .db import get_db
 from .models import Admin
+
+
+WEAK_PASSWORDS = {"admin", "admin123", "password", "123456", "12345678"}
+
+
+def password_strength_error(pw: str) -> Optional[str]:
+    if pw is None:
+        return "Mật khẩu không được trống."
+    if pw.lower() in WEAK_PASSWORDS:
+        return "Mật khẩu này quá phổ biến, vui lòng chọn mật khẩu khác."
+    if len(pw) < 10:
+        return "Mật khẩu phải có ít nhất 10 ký tự."
+    if not re.search(r"[a-z]", pw):
+        return "Mật khẩu phải có chữ thường."
+    if not re.search(r"[A-Z]", pw):
+        return "Mật khẩu phải có chữ in hoa."
+    if not re.search(r"\d", pw):
+        return "Mật khẩu phải có chữ số."
+    if not re.search(r"[^A-Za-z0-9]", pw):
+        return "Mật khẩu phải có ký tự đặc biệt (vd: !@#$%^&*)."
+    return None
 
 SECRET_KEY = os.environ.get("EXAM_SECRET_KEY", "dev-secret-change-me")
 ALGORITHM = "HS256"
@@ -58,4 +80,30 @@ def get_current_admin(
     admin = db.query(Admin).filter(Admin.username == username).first()
     if not admin:
         raise credentials_exception
+    return admin
+
+
+def require_roles(*allowed: str):
+    """Dependency factory: only allow admins with role in `allowed`."""
+    def dep(admin: Admin = Depends(get_current_admin)) -> Admin:
+        if admin.role not in allowed:
+            raise HTTPException(status_code=403, detail="Không đủ quyền cho thao tác này.")
+        return admin
+    return dep
+
+
+def require_write(admin: Admin = Depends(get_current_admin)) -> Admin:
+    """Allow super or manager (anyone except viewer)."""
+    if admin.role not in ("super", "manager"):
+        raise HTTPException(status_code=403, detail="Tài khoản chỉ có quyền xem.")
+    if admin.must_change_password:
+        raise HTTPException(status_code=403, detail="Bạn cần đổi mật khẩu trước khi thực hiện thao tác.")
+    return admin
+
+
+def require_super(admin: Admin = Depends(get_current_admin)) -> Admin:
+    if admin.role != "super":
+        raise HTTPException(status_code=403, detail="Chỉ Super-admin mới có quyền.")
+    if admin.must_change_password:
+        raise HTTPException(status_code=403, detail="Bạn cần đổi mật khẩu trước khi thực hiện thao tác.")
     return admin

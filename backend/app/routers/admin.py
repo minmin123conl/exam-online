@@ -16,6 +16,9 @@ from ..auth import (
     create_access_token,
     get_current_admin,
     hash_password,
+    password_strength_error,
+    require_super,
+    require_write,
     verify_password,
 )
 from ..db import get_db
@@ -34,12 +37,21 @@ def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get
     if not admin or not verify_password(form.password, admin.password_hash):
         raise HTTPException(status_code=401, detail="Sai tên đăng nhập hoặc mật khẩu")
     token = create_access_token(sub=admin.username)
-    return schemas.Token(access_token=token)
+    return schemas.Token(
+        access_token=token,
+        role=admin.role or "super",
+        must_change_password=bool(admin.must_change_password),
+        username=admin.username,
+    )
 
 
 @router.get("/me")
 def me(admin: models.Admin = Depends(get_current_admin)):
-    return {"username": admin.username}
+    return {
+        "username": admin.username,
+        "role": admin.role or "super",
+        "must_change_password": bool(admin.must_change_password),
+    }
 
 
 @router.post("/change-password")
@@ -50,11 +62,112 @@ def change_password(
 ):
     old = body.get("old_password") or ""
     new = body.get("new_password") or ""
-    if not new or len(new) < 4:
-        raise HTTPException(status_code=400, detail="Mật khẩu mới phải có ít nhất 4 ký tự")
     if not verify_password(old, admin.password_hash):
         raise HTTPException(status_code=400, detail="Sai mật khẩu cũ")
+    err = password_strength_error(new)
+    if err:
+        raise HTTPException(status_code=400, detail=err)
+    if verify_password(new, admin.password_hash):
+        raise HTTPException(status_code=400, detail="Mật khẩu mới không được trùng với mật khẩu cũ.")
     admin.password_hash = hash_password(new)
+    admin.must_change_password = False
+    db.commit()
+    return {"ok": True}
+
+
+# ---- Admin user management (super only) ----
+VALID_ROLES = {"super", "manager", "viewer"}
+
+
+@router.get("/users", response_model=List[schemas.AdminUserOut])
+def list_admin_users(
+    db: Session = Depends(get_db),
+    _: models.Admin = Depends(require_super),
+):
+    rows = db.query(models.Admin).order_by(models.Admin.created_at.asc()).all()
+    return rows
+
+
+@router.post("/users", response_model=schemas.AdminUserOut)
+def create_admin_user(
+    body: schemas.AdminUserCreate,
+    db: Session = Depends(get_db),
+    _: models.Admin = Depends(require_super),
+):
+    username = (body.username or "").strip()
+    if not username or len(username) < 3:
+        raise HTTPException(400, "Tên đăng nhập phải ≥ 3 ký tự.")
+    if body.role not in VALID_ROLES:
+        raise HTTPException(400, "Vai trò không hợp lệ.")
+    err = password_strength_error(body.password)
+    if err:
+        raise HTTPException(400, err)
+    if db.query(models.Admin).filter(models.Admin.username == username).first():
+        raise HTTPException(400, "Tên đăng nhập đã tồn tại.")
+    a = models.Admin(
+        username=username,
+        password_hash=hash_password(body.password),
+        role=body.role,
+        must_change_password=False,
+    )
+    db.add(a)
+    db.commit()
+    db.refresh(a)
+    return a
+
+
+@router.patch("/users/{user_id}", response_model=schemas.AdminUserOut)
+def update_admin_user(
+    user_id: int,
+    body: schemas.AdminUserUpdate,
+    db: Session = Depends(get_db),
+    current: models.Admin = Depends(require_super),
+):
+    target = db.query(models.Admin).filter(models.Admin.id == user_id).first()
+    if not target:
+        raise HTTPException(404, "Không tìm thấy tài khoản.")
+    if body.role is not None:
+        if body.role not in VALID_ROLES:
+            raise HTTPException(400, "Vai trò không hợp lệ.")
+        if target.id == current.id and body.role != "super":
+            raise HTTPException(400, "Không thể tự hạ quyền của chính mình.")
+        if target.role == "super" and body.role != "super":
+            remaining = db.query(models.Admin).filter(
+                models.Admin.role == "super", models.Admin.id != target.id
+            ).count()
+            if remaining == 0:
+                raise HTTPException(400, "Phải còn ít nhất 1 Super-admin.")
+        target.role = body.role
+    if body.new_password is not None:
+        err = password_strength_error(body.new_password)
+        if err:
+            raise HTTPException(400, err)
+        target.password_hash = hash_password(body.new_password)
+        if target.id != current.id:
+            target.must_change_password = True
+    db.commit()
+    db.refresh(target)
+    return target
+
+
+@router.delete("/users/{user_id}")
+def delete_admin_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current: models.Admin = Depends(require_super),
+):
+    target = db.query(models.Admin).filter(models.Admin.id == user_id).first()
+    if not target:
+        raise HTTPException(404, "Không tìm thấy tài khoản.")
+    if target.id == current.id:
+        raise HTTPException(400, "Không thể tự xoá tài khoản của chính mình.")
+    if target.role == "super":
+        remaining = db.query(models.Admin).filter(
+            models.Admin.role == "super", models.Admin.id != target.id
+        ).count()
+        if remaining == 0:
+            raise HTTPException(400, "Phải còn ít nhất 1 Super-admin.")
+    db.delete(target)
     db.commit()
     return {"ok": True}
 
@@ -90,7 +203,7 @@ def list_exams(db: Session = Depends(get_db), _: models.Admin = Depends(get_curr
 
 
 @router.post("/exams", response_model=schemas.ExamSummary)
-def create_exam(body: schemas.ExamIn, db: Session = Depends(get_db), _: models.Admin = Depends(get_current_admin)):
+def create_exam(body: schemas.ExamIn, db: Session = Depends(get_db), _: models.Admin = Depends(require_write)):
     exam = models.Exam(
         title=body.title,
         description=body.description,
@@ -121,7 +234,7 @@ def update_exam(
     exam_id: int,
     body: schemas.ExamIn,
     db: Session = Depends(get_db),
-    _: models.Admin = Depends(get_current_admin),
+    _: models.Admin = Depends(require_write),
 ):
     exam = db.query(models.Exam).filter(models.Exam.id == exam_id).first()
     if not exam:
@@ -137,7 +250,7 @@ def update_exam(
 
 
 @router.delete("/exams/{exam_id}")
-def delete_exam(exam_id: int, db: Session = Depends(get_db), _: models.Admin = Depends(get_current_admin)):
+def delete_exam(exam_id: int, db: Session = Depends(get_db), _: models.Admin = Depends(require_write)):
     exam = db.query(models.Exam).filter(models.Exam.id == exam_id).first()
     if not exam:
         raise HTTPException(404, "Không tìm thấy đề thi")
@@ -147,7 +260,7 @@ def delete_exam(exam_id: int, db: Session = Depends(get_db), _: models.Admin = D
 
 
 @router.post("/exams/{exam_id}/duplicate", response_model=schemas.ExamSummary)
-def duplicate_exam(exam_id: int, db: Session = Depends(get_db), _: models.Admin = Depends(get_current_admin)):
+def duplicate_exam(exam_id: int, db: Session = Depends(get_db), _: models.Admin = Depends(require_write)):
     exam = db.query(models.Exam).filter(models.Exam.id == exam_id).first()
     if not exam:
         raise HTTPException(404, "Không tìm thấy đề thi")
@@ -184,7 +297,7 @@ async def upload_exam_docx(
     is_active: bool = Form(True),
     show_leaderboard: bool = Form(True),
     db: Session = Depends(get_db),
-    _: models.Admin = Depends(get_current_admin),
+    _: models.Admin = Depends(require_write),
 ):
     if not file.filename or not file.filename.lower().endswith(".docx"):
         raise HTTPException(400, "Vui lòng tải lên file .docx")
@@ -271,7 +384,7 @@ async def upload_exam_docx(
 @router.post("/uploads/image")
 async def upload_image(
     file: UploadFile = File(...),
-    _: models.Admin = Depends(get_current_admin),
+    _: models.Admin = Depends(require_write),
 ):
     if not file.filename:
         raise HTTPException(400, "Thiếu file")
@@ -298,7 +411,7 @@ def add_question(
     exam_id: int,
     body: schemas.QuestionIn,
     db: Session = Depends(get_db),
-    _: models.Admin = Depends(get_current_admin),
+    _: models.Admin = Depends(require_write),
 ):
     exam = db.query(models.Exam).filter(models.Exam.id == exam_id).first()
     if not exam:
@@ -325,7 +438,7 @@ def update_question(
     question_id: int,
     body: schemas.QuestionIn,
     db: Session = Depends(get_db),
-    _: models.Admin = Depends(get_current_admin),
+    _: models.Admin = Depends(require_write),
 ):
     q = db.query(models.Question).filter(models.Question.id == question_id).first()
     if not q:
@@ -345,7 +458,7 @@ def update_question(
 def delete_question(
     question_id: int,
     db: Session = Depends(get_db),
-    _: models.Admin = Depends(get_current_admin),
+    _: models.Admin = Depends(require_write),
 ):
     q = db.query(models.Question).filter(models.Question.id == question_id).first()
     if not q:
@@ -378,7 +491,7 @@ def generate_codes(
     exam_id: int,
     body: schemas.GenerateCodesRequest,
     db: Session = Depends(get_db),
-    _: models.Admin = Depends(get_current_admin),
+    _: models.Admin = Depends(require_write),
 ):
     exam = db.query(models.Exam).filter(models.Exam.id == exam_id).first()
     if not exam:
@@ -406,7 +519,7 @@ def add_code(
     exam_id: int,
     body: schemas.AddCodeRequest,
     db: Session = Depends(get_db),
-    _: models.Admin = Depends(get_current_admin),
+    _: models.Admin = Depends(require_write),
 ):
     exam = db.query(models.Exam).filter(models.Exam.id == exam_id).first()
     if not exam:
@@ -427,7 +540,7 @@ def add_code(
 def delete_code(
     code_id: int,
     db: Session = Depends(get_db),
-    _: models.Admin = Depends(get_current_admin),
+    _: models.Admin = Depends(require_write),
 ):
     c = db.query(models.ExamCode).filter(models.ExamCode.id == code_id).first()
     if not c:
@@ -441,7 +554,7 @@ def delete_code(
 def reset_code(
     code_id: int,
     db: Session = Depends(get_db),
-    _: models.Admin = Depends(get_current_admin),
+    _: models.Admin = Depends(require_write),
 ):
     """Cho phép học sinh dùng lại mã (reset trạng thái đã dùng)."""
     c = db.query(models.ExamCode).filter(models.ExamCode.id == code_id).first()
@@ -483,7 +596,7 @@ def list_attempts(exam_id: int, db: Session = Depends(get_db), _: models.Admin =
 def delete_attempt(
     attempt_id: int,
     db: Session = Depends(get_db),
-    _: models.Admin = Depends(get_current_admin),
+    _: models.Admin = Depends(require_write),
 ):
     a = db.query(models.Attempt).filter(models.Attempt.id == attempt_id).first()
     if not a:

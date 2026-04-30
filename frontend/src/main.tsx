@@ -7,6 +7,8 @@ import App from "./App";
 import Home from "./pages/Home";
 import AdminLogin from "./pages/AdminLogin";
 import AdminDashboard from "./pages/AdminDashboard";
+import AdminUsers from "./pages/AdminUsers";
+import ChangePassword from "./pages/ChangePassword";
 import ExamEditor from "./pages/ExamEditor";
 import StudentStart from "./pages/StudentStart";
 import StudentExam from "./pages/StudentExam";
@@ -21,6 +23,8 @@ createRoot(document.getElementById("root")!).render(
           <Route index element={<Home />} />
           <Route path="admin/login" element={<AdminLogin />} />
           <Route path="admin" element={<AdminDashboard />} />
+          <Route path="admin/users" element={<AdminUsers />} />
+          <Route path="admin/change-password" element={<ChangePassword />} />
           <Route path="admin/exams/:examId" element={<ExamEditor />} />
           <Route path="join" element={<StudentStart />} />
           <Route path="exam/:attemptId" element={<StudentExam />} />
