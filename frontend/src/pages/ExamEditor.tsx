@@ -231,25 +231,28 @@ function QuestionsTab({ exam, reload }: { exam: ExamFull; reload: () => void }) 
         />
       )}
 
-      {editing && (
-        <QuestionForm
-          examId={exam.id}
-          question={editing}
-          onSaved={() => {
-            setEditing(null);
-            reload();
-          }}
-          onCancel={() => setEditing(null)}
-        />
-      )}
-
       <div>
         {visibleQuestions.length === 0 && (
           <div className="card muted" style={{ textAlign: "center", padding: 24 }}>
             Không có câu hỏi nào khớp với bộ lọc.
           </div>
         )}
-        {visibleQuestions.map(({ q, idx }) => (
+        {visibleQuestions.map(({ q, idx }) => {
+          if (editing && editing.id === q.id) {
+            return (
+              <QuestionForm
+                key={q.id}
+                examId={exam.id}
+                question={editing}
+                onSaved={() => {
+                  setEditing(null);
+                  reload();
+                }}
+                onCancel={() => setEditing(null)}
+              />
+            );
+          }
+          return (
           <div key={q.id} className="card" style={{ padding: 14 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
               <div>
@@ -310,7 +313,8 @@ function QuestionsTab({ exam, reload }: { exam: ExamFull; reload: () => void }) 
               </div>
             )}
           </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
