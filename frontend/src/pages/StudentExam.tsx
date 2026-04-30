@@ -13,6 +13,7 @@ export default function StudentExam() {
   const [current, setCurrent] = useState(0);
   const [remaining, setRemaining] = useState<number>(0);
   const [submitting, setSubmitting] = useState(false);
+  const [showNavDrawer, setShowNavDrawer] = useState(false);
   const submittedRef = useRef(false);
 
   const storageKey = `attempt_${attemptId}`;
@@ -102,24 +103,39 @@ export default function StudentExam() {
   const ss = String(remaining % 60).padStart(2, "0");
   const timerClass = remaining < 60 ? "timer danger" : remaining < 300 ? "timer warning" : "timer";
 
+  function pickQuestion(i: number) {
+    setCurrent(i);
+    setShowNavDrawer(false);
+  }
+
   return (
-    <div className="container wide">
-      <div className="toolbar">
-        <div style={{ flex: 1 }}>
-          <h2 style={{ margin: 0 }}>{data.exam.title}</h2>
-          <div className="muted">
-            Học sinh: <strong>{data.student_name}</strong> • {totalAnswered}/{totalQ} câu đã chọn
+    <div className="container wide exam-page">
+      <div className="exam-toolbar">
+        <div className="exam-toolbar-info">
+          <h2 className="exam-toolbar-title">{data.exam.title}</h2>
+          <div className="muted exam-toolbar-meta">
+            <strong>{data.student_name}</strong> · {totalAnswered}/{totalQ} đã chọn
           </div>
         </div>
-        <div className={timerClass}>
-          ⏱ {mm}:{ss}
+        <div className="exam-toolbar-actions">
+          <div className={timerClass}>
+            ⏱ {mm}:{ss}
+          </div>
+          <button className="btn" onClick={submit} disabled={submitting}>
+            {submitting ? "Đang nộp…" : "Nộp bài"}
+          </button>
         </div>
-        <button className="btn" onClick={submit} disabled={submitting}>
-          {submitting ? "Đang nộp…" : "Nộp bài"}
-        </button>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 260px", gap: 16 }}>
+      <button
+        type="button"
+        className="btn secondary nav-drawer-toggle"
+        onClick={() => setShowNavDrawer(true)}
+      >
+        ☰ Danh sách câu ({totalAnswered}/{totalQ})
+      </button>
+
+      <div className="exam-grid">
         <div>
           <div className="question-card">
             <div className="question-number">
@@ -135,7 +151,7 @@ export default function StudentExam() {
             </div>
             <div className="question-text"><RichText text={q.question} /></div>
             {q.type === "mc" ? <McInput q={q} answer={answers[String(q.id)] as string} onChange={(l) => setMcAnswer(q.id, l)} /> : <TfInput q={q} answer={answers[String(q.id)] as Record<string, boolean>} onChange={(l, v) => setTfAnswer(q.id, l, v)} />}
-            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 16 }}>
+            <div className="exam-nav-buttons">
               <button
                 className="btn secondary"
                 onClick={() => setCurrent(Math.max(0, current - 1))}
@@ -155,18 +171,40 @@ export default function StudentExam() {
             </div>
           </div>
         </div>
-        <div>
+        <aside className="exam-sidebar">
           <div className="sidebar-nav">
             <h4 style={{ marginTop: 0 }}>Danh sách câu</h4>
             <div className="muted" style={{ fontSize: 12, marginBottom: 10 }}>
               Bấm số để chuyển tới câu đó
             </div>
-            <div style={{ display: "flex", flexWrap: "wrap" }}>
+            <div className="q-dot-grid">
               {data.questions.map((qq, i) => (
                 <div
                   key={qq.id}
                   className={`q-dot ${answered.has(qq.id) ? "answered" : ""} ${i === current ? "current" : ""}`}
-                  onClick={() => setCurrent(i)}
+                  onClick={() => pickQuestion(i)}
+                >
+                  {i + 1}
+                </div>
+              ))}
+            </div>
+          </div>
+        </aside>
+      </div>
+
+      {showNavDrawer && (
+        <div className="nav-drawer-backdrop" onClick={() => setShowNavDrawer(false)}>
+          <div className="nav-drawer" onClick={(e) => e.stopPropagation()}>
+            <div className="nav-drawer-header">
+              <strong>Danh sách câu — {totalAnswered}/{totalQ} đã chọn</strong>
+              <button className="btn sm secondary" onClick={() => setShowNavDrawer(false)}>✕</button>
+            </div>
+            <div className="q-dot-grid">
+              {data.questions.map((qq, i) => (
+                <div
+                  key={qq.id}
+                  className={`q-dot ${answered.has(qq.id) ? "answered" : ""} ${i === current ? "current" : ""}`}
+                  onClick={() => pickQuestion(i)}
                 >
                   {i + 1}
                 </div>
@@ -174,7 +212,7 @@ export default function StudentExam() {
             </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

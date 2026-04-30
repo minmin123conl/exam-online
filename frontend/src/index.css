@@ -349,8 +349,125 @@ label {
   border-bottom-color: var(--primary);
 }
 
+/* ===== Student exam layout ===== */
+.exam-toolbar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 16px;
+  box-shadow: var(--shadow);
+  margin-bottom: 12px;
+  position: sticky;
+  top: 56px;
+  z-index: 20;
+  flex-wrap: wrap;
+}
+.exam-toolbar-info {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+.exam-toolbar-title {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.exam-toolbar-meta { font-size: 13px; }
+.exam-toolbar-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.exam-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 16px;
+}
+.exam-nav-buttons {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 16px;
+}
+.q-dot-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(38px, 1fr));
+  gap: 6px;
+}
+.q-dot-grid .q-dot { margin: 0; width: auto; }
+
+.nav-drawer-toggle { display: none; width: 100%; margin-bottom: 12px; }
+
+.nav-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  z-index: 200;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+.nav-drawer {
+  background: #fff;
+  width: 100%;
+  max-width: 560px;
+  max-height: 80vh;
+  border-radius: 14px 14px 0 0;
+  padding: 16px;
+  box-shadow: 0 -8px 24px rgba(0,0,0,0.2);
+  overflow-y: auto;
+}
+.nav-drawer-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
 @media (max-width: 768px) {
   .home-hero h1 { font-size: 28px; }
   .container { padding: 14px; }
   .header { padding: 12px 14px; }
+  .header nav a { margin-left: 10px; font-size: 13px; }
+  .exam-grid { grid-template-columns: minmax(0, 1fr); }
+  .exam-sidebar { display: none; }
+  .nav-drawer-toggle { display: inline-flex; }
+  .exam-toolbar { padding: 10px 12px; gap: 8px; top: 50px; }
+  .exam-toolbar-title { font-size: 15px; }
+  .exam-toolbar-meta { font-size: 12px; }
+  .timer { padding: 6px 10px; font-size: 14px; }
+  .question-card { padding: 14px; }
+  .question-text { font-size: 15px; }
+  .option { padding: 10px; }
+  .option .letter { min-width: 20px; }
+  .toolbar { gap: 6px; }
+  .toolbar h2 { font-size: 18px; flex-basis: 100%; }
+  .btn { font-size: 13px; padding: 7px 12px; }
+  .btn.sm { font-size: 12px; padding: 5px 10px; }
+  .table { font-size: 13px; }
+  .table th, .table td { padding: 8px 8px; }
+  .score-hero { padding: 22px 14px; }
+  .score-hero .big { font-size: 40px; }
+  .podium { grid-template-columns: 1fr; }
+  .podium .step { padding: 12px; }
+  .pill-tabs { overflow-x: auto; flex-wrap: nowrap; }
+  .pill-tabs button { white-space: nowrap; padding: 8px 12px; font-size: 13px; }
 }
+
+@media (max-width: 480px) {
+  .exam-toolbar-title { font-size: 14px; }
+  .exam-nav-buttons { flex-direction: row; }
+  .q-dot { width: 36px; height: 36px; font-size: 12px; }
+  .home-hero h1 { font-size: 24px; }
+  .home-hero p { font-size: 14px; }
+  .home-hero { padding: 30px 14px 20px; }
+}
+
