@@ -147,7 +147,7 @@ export const api = {
     meta: { title?: string; duration_minutes?: number; description?: string } = {},
   ): Promise<{
     exam: ExamSummary;
-    stats: { num_mc: number; num_tf: number; missing_answers: number };
+    stats: { num_mc: number; num_tf: number; num_sa?: number; missing_answers: number };
     warnings: string[];
   }> {
     const fd = new FormData();
@@ -281,7 +281,7 @@ export interface ExamSummary extends ExamIn {
 
 export interface Question {
   id: number;
-  type: "mc" | "tf";
+  type: "mc" | "tf" | "sa";
   section: string;
   order_index: number;
   points: number;
@@ -289,7 +289,7 @@ export interface Question {
 }
 
 export interface QuestionIn {
-  type: "mc" | "tf";
+  type: "mc" | "tf" | "sa";
   section: string;
   order_index: number;
   points: number;
@@ -337,7 +337,16 @@ export interface PublicQuestionTF {
   statements: Record<string, string>;
 }
 
-export type PublicQuestion = PublicQuestionMC | PublicQuestionTF;
+export interface PublicQuestionSA {
+  id: number;
+  type: "sa";
+  section: string;
+  order_index: number;
+  points: number;
+  question: string;
+}
+
+export type PublicQuestion = PublicQuestionMC | PublicQuestionTF | PublicQuestionSA;
 
 export interface StartExamResponse {
   attempt_id: number;
@@ -350,7 +359,7 @@ export interface StartExamResponse {
 
 export interface AttemptDetail {
   question_id: number;
-  type: "mc" | "tf";
+  type: "mc" | "tf" | "sa";
   section: string;
   question: string;
   options?: Record<string, string>;

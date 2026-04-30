@@ -27,14 +27,32 @@ def _question_to_public(q: models.Question) -> dict:
             "question": d.get("question", ""),
             "options": d.get("options", {}),
         }
+    if q.type == "tf":
+        return {
+            "id": q.id,
+            "type": "tf",
+            "section": q.section or "",
+            "order_index": q.order_index,
+            "points": q.points,
+            "question": d.get("question", ""),
+            "statements": d.get("statements", {}),
+        }
+    if q.type == "sa":
+        return {
+            "id": q.id,
+            "type": "sa",
+            "section": q.section or "",
+            "order_index": q.order_index,
+            "points": q.points,
+            "question": d.get("question", ""),
+        }
     return {
         "id": q.id,
-        "type": "tf",
+        "type": q.type,
         "section": q.section or "",
         "order_index": q.order_index,
         "points": q.points,
         "question": d.get("question", ""),
-        "statements": d.get("statements", {}),
     }
 
 

@@ -107,7 +107,7 @@ export default function StudentResult() {
                     ) : (
                       <span className="badge danger">✗ Sai (+{d.earned.toFixed(2)}/{d.points})</span>
                     )}{" "}
-                    <span className="badge">{d.type === "mc" ? "Trắc nghiệm" : "Đúng/Sai"}</span>
+                    <span className="badge">{d.type === "mc" ? "Trắc nghiệm" : d.type === "tf" ? "Đúng/Sai" : "Trả lời ngắn"}</span>
                   </div>
                   {d.section && <span className="muted" style={{ fontSize: 12 }}>{d.section}</span>}
                 </div>
@@ -134,6 +134,21 @@ export default function StudentResult() {
                         Bạn chưa chọn đáp án cho câu này.
                       </div>
                     )}
+                  </div>
+                )}
+                {d.type === "sa" && (
+                  <div>
+                    <div
+                      className={`option ${d.is_correct ? "correct-highlight" : "wrong-highlight"}`}
+                    >
+                      <span style={{ flex: 1 }}>
+                        <span className="muted">Đáp án của bạn: </span>
+                        <strong>{(d.your_answer as string) || "—"}</strong>
+                      </span>
+                      <span className="muted" style={{ whiteSpace: "nowrap" }}>
+                        Đáp án đúng: <strong>{(d.correct as string) || "—"}</strong>
+                      </span>
+                    </div>
                   </div>
                 )}
                 {d.type === "tf" && d.statements && (

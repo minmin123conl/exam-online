@@ -86,6 +86,28 @@ def grade_attempt(
                 "earned": earned,
                 "sub_correct": sub_correct,
             })
+        elif q.type == "sa":
+            correct = (data.get("answer") or "").strip()
+            your_str = (your or "").strip() if isinstance(your, str) else ""
+            # Compare case-insensitively, also strip spaces (so "1 2 3 4" == "1234")
+            def _norm(s: str) -> str:
+                return "".join(s.lower().split())
+            is_correct = bool(correct) and _norm(your_str) == _norm(correct)
+            earned = q.points if is_correct else 0.0
+            if is_correct:
+                num_correct += 1
+            score += earned
+            details.append({
+                "question_id": q.id,
+                "type": "sa",
+                "section": q.section or "",
+                "question": data.get("question", ""),
+                "correct": correct,
+                "your_answer": your_str,
+                "is_correct": is_correct,
+                "points": q.points,
+                "earned": earned,
+            })
         else:
             details.append({
                 "question_id": q.id,

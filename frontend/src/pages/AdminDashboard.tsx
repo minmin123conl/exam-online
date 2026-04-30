@@ -92,8 +92,10 @@ export default function AdminDashboard() {
       const m = res.stats.missing_answers
         ? `\n\nCó ${res.stats.missing_answers} câu chưa nhận diện được đáp án — vui lòng vào trang sửa đề để chỉnh tay.`
         : "";
+      const sa = (res.stats.num_sa ?? 0);
+      const saLine = sa ? `\nTrả lời ngắn: ${sa} câu` : "";
       alert(
-        `Đã tạo đề thành công!\nTrắc nghiệm: ${res.stats.num_mc} câu\nĐúng/Sai: ${res.stats.num_tf} câu${m}${w}`
+        `Đã tạo đề thành công!\nTrắc nghiệm: ${res.stats.num_mc} câu\nĐúng/Sai: ${res.stats.num_tf} câu${saLine}${m}${w}`
       );
       nav(`/admin/exams/${res.exam.id}`);
     } catch (e) {
