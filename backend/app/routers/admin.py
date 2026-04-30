@@ -332,6 +332,7 @@ async def upload_exam_docx(
     order = 1
     n_mc = 0
     n_tf = 0
+    n_sa = 0
     n_missing_answer = 0
     for section in parsed.get("sections", []):
         for q in section["questions"]:
@@ -368,6 +369,23 @@ async def upload_exam_docx(
         ))
         order += 1
         n_tf += 1
+    for q in parsed.get("short_answer_questions", []):
+        db.add(models.Question(
+            exam_id=exam.id,
+            order_index=order,
+            type="sa",
+            section="Phần trả lời ngắn",
+            data={
+                "question": q["question"],
+                "answer": q.get("answer") or "",
+                "images": q.get("images", []),
+            },
+            points=1.0,
+        ))
+        order += 1
+        n_sa += 1
+        if not q.get("answer"):
+            n_missing_answer += 1
     db.commit()
     db.refresh(exam)
     return {
@@ -375,6 +393,7 @@ async def upload_exam_docx(
         "stats": {
             "num_mc": n_mc,
             "num_tf": n_tf,
+            "num_sa": n_sa,
             "missing_answers": n_missing_answer,
         },
         "warnings": parsed.get("warnings", []),

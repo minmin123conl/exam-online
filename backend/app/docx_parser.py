@@ -175,6 +175,28 @@ def _strip_red(s: str) -> str:
     return s.replace(R_OPEN, "").replace(R_CLOSE, "")
 
 
+def _starts_with_cau(p: str) -> bool:
+    """Return True if paragraph starts with a question marker (Câu N), tolerating
+    leading markers like [IMG:...] or [MATH:...] from inline content."""
+    s = _strip_red(p).strip()
+    s = re.sub(r"^(?:\[(?:IMG|MATH):[^\]]*\]\s*)+", "", s)
+    return bool(re.match(r"^\s*C[âa]u\s*\d+\b", s))
+
+
+def _strip_cau_prefix(text: str) -> str:
+    """Strip a leading 'Câu N.' marker, even when preceded by inline IMG/MATH markers."""
+    leading = ""
+    rest = text
+    m_lead = re.match(r"^((?:\[(?:IMG|MATH):[^\]]*\]\s*)*)", rest)
+    if m_lead:
+        leading = m_lead.group(1)
+        rest = rest[m_lead.end():]
+    m = re.match(r"^\s*C[âa]u\s*\d+\s*[:.\-]?\s*", rest)
+    if m:
+        rest = rest[m.end():].strip()
+    return (leading + rest).strip()
+
+
 def _red_spans(s: str) -> Tuple[str, List[Tuple[int, int]]]:
     """Return (clean_text, list_of_red_spans_in_clean_text)."""
     out: List[str] = []
@@ -200,7 +222,9 @@ def _red_spans(s: str) -> Tuple[str, List[Tuple[int, int]]]:
 def _parse_mc(block_text: str) -> Optional[Dict[str, Any]]:
     clean, spans = _red_spans(block_text)
     matches: List[Tuple[int, str, int]] = []
-    for m in re.finditer(r"(?:^|(?<=[\s\n]))([A-D])\s*[.)]", clean):
+    # Allow option markers to follow whitespace, newline, or any non-alphanumeric
+    # character (e.g. '?A.' or ']A.' from inline images).
+    for m in re.finditer(r"(?:^|(?<=[^A-Za-zÀ-ỹ0-9]))([A-D])\s*[.)]", clean):
         matches.append((m.start(1), m.group(1), m.end()))
     expected = ["A", "B", "C", "D"]
     picked: List[Tuple[int, str, int]] = []
@@ -221,10 +245,7 @@ def _parse_mc(block_text: str) -> Optional[Dict[str, Any]]:
         if len(picked) < 4:
             return None
     q_end = picked[0][0]
-    question_text = clean[:q_end].strip()
-    m = re.match(r"Câu\s*\d+\s*[:.\-]?\s*", question_text)
-    if m:
-        question_text = question_text[m.end():].strip()
+    question_text = _strip_cau_prefix(clean[:q_end].strip())
     options: Dict[str, str] = {}
     for i, (pos, letter, end) in enumerate(picked):
         opt_end = picked[i + 1][0] if i + 1 < len(picked) else len(clean)
@@ -245,25 +266,50 @@ def _parse_mc(block_text: str) -> Optional[Dict[str, Any]]:
     }
 
 
+def _parse_short_answer(block_text: str) -> Optional[Dict[str, Any]]:
+    """Parse a 'short answer' question. Format:
+    "Câu N. <body...> Đáp án: <answer>"
+    Returns {"question": str, "answer": str}.
+    """
+    clean = _strip_red(block_text).strip()
+    if not clean:
+        return None
+    m = re.search(r"Đ[áa]p\s*[áa]n\s*[:\-]\s*([^\n]+)", clean, re.IGNORECASE)
+    if not m:
+        # No answer marker — keep question, mark unknown answer
+        text = _strip_cau_prefix(clean)
+        return {"question": text, "answer": None}
+    answer = m.group(1).strip().rstrip(".")
+    body = clean[: m.start()].strip()
+    body = _strip_cau_prefix(body)
+    return {"question": body, "answer": answer}
+
+
 def _parse_tf(block_text: str, tbl_answers: Dict[str, bool]) -> Optional[Dict[str, Any]]:
     clean, _ = _red_spans(block_text)
-    picked: List[Tuple[int, str, int]] = []
     expected = ["a", "b", "c", "d"]
+    # First pass: try strict a/b/c/d sequence
+    picked: List[Tuple[int, str, int]] = []
     idx = 0
     last_end = -1
-    for m in re.finditer(r"(?:^|(?<=[\s\n]))([a-d])\s*[.)]", clean):
+    for m in re.finditer(r"(?:^|(?<=[^A-Za-zÀ-ỹ0-9]))([a-d])\s*[.)]", clean):
         letter = m.group(1)
         if idx < 4 and letter == expected[idx] and m.end() > last_end:
             picked.append((m.start(1), letter, m.end()))
             last_end = m.end()
             idx += 1
+    # Fallback: if strict sequence failed (e.g. docx typo a)/b)/c)/c)), take the
+    # first 4 statement-style markers in order and map to a/b/c/d.
     if len(picked) < 4:
-        return None
+        all_matches = list(re.finditer(r"(?:^|(?<=[^A-Za-zÀ-ỹ0-9]))([a-d])\s*[.)]", clean))
+        if len(all_matches) >= 4:
+            picked = []
+            for k, m in enumerate(all_matches[:4]):
+                picked.append((m.start(1), expected[k], m.end()))
+        else:
+            return None
     q_end = picked[0][0]
-    question_text = clean[:q_end].strip()
-    m = re.match(r"Câu\s*\d+\s*[:.\-]?\s*", question_text)
-    if m:
-        question_text = question_text[m.end():].strip()
+    question_text = _strip_cau_prefix(clean[:q_end].strip())
     statements: Dict[str, str] = {}
     for i, (pos, letter, end) in enumerate(picked):
         stmt_end = picked[i + 1][0] if i + 1 < len(picked) else len(clean)
@@ -299,21 +345,39 @@ def parse_docx(path: str, image_dir: str, url_prefix: str) -> Dict[str, Any]:
             answers = _table_answers(child)
             items.append(("tbl", answers, table_imgs))
 
-    # Locate the True/False section header
+    # Locate True/False section header and Short-answer section header.
+    # Match both Roman numerals (Phần II) and Vietnamese numbers (Phần 2.) variations,
+    # case-insensitive on the "Phần"/"PHẦN" prefix.
     tf_start: Optional[int] = None
+    sa_start: Optional[int] = None
+    tf_pat = re.compile(r"ph[ầa]n\s+(?:ii\b|2\b)", re.IGNORECASE)
+    sa_pat = re.compile(r"ph[ầa]n\s+(?:iii\b|3\b)", re.IGNORECASE)
     for i, (t, v, _imgs) in enumerate(items):
-        if t == "p" and isinstance(v, str) and "Phần II" in v and "đúng sai" in v.lower():
+        if t != "p" or not isinstance(v, str):
+            continue
+        s = _strip_red(v)
+        sl = s.lower()
+        if tf_start is None and tf_pat.search(sl) and "đúng sai" in sl:
             tf_start = i
-            break
+        elif sa_start is None and (
+            (sa_pat.search(sl) and ("trả lời ngắn" in sl or "tra loi ngan" in sl))
+            or "trả lời ngắn" in sl
+        ):
+            sa_start = i
 
-    mc_items = items if tf_start is None else items[:tf_start]
-    tf_items = [] if tf_start is None else items[tf_start + 1:]
+    # Slice items into 3 sections in document order.
+    mc_end = tf_start if tf_start is not None else (sa_start if sa_start is not None else len(items))
+    tf_end = sa_start if sa_start is not None else len(items)
+    mc_items = items[:mc_end]
+    tf_items = items[tf_start + 1: tf_end] if tf_start is not None else []
+    sa_items = items[sa_start + 1:] if sa_start is not None else []
 
-    # Sections within MC
+    # Sub-sections within MC (e.g. "Phần 1. Trắc nghiệm nhiều lựa chọn" header is included).
     sections: List[Dict[str, Any]] = []
     current_section: Dict[str, Any] = {"title": "PHẦN I", "items": []}
+    sec_pat = re.compile(r"^\s*ph[ầa]n\s+(?:[ivx]+|\d+)\b[.:]?", re.IGNORECASE)
     for t, v, imgs in mc_items:
-        if t == "p" and isinstance(v, str) and re.match(r"^PHẦN\s+[IVX]+", v.strip()):
+        if t == "p" and isinstance(v, str) and sec_pat.match(_strip_red(v).strip()):
             if current_section["items"]:
                 sections.append(current_section)
             current_section = {"title": _strip_red(v).strip(), "items": []}
@@ -328,7 +392,7 @@ def parse_docx(path: str, image_dir: str, url_prefix: str) -> Dict[str, Any]:
         questions: List[List[Tuple[str, Any, List[str]]]] = []
         current: List[Tuple[str, Any, List[str]]] = []
         for t, v, imgs in section["items"]:
-            if t == "p" and isinstance(v, str) and re.match(r"^Câu\s*\d+", v.strip()):
+            if t == "p" and isinstance(v, str) and _starts_with_cau(v):
                 if current:
                     questions.append(current)
                 current = [(t, v, imgs)]
@@ -359,7 +423,7 @@ def parse_docx(path: str, image_dir: str, url_prefix: str) -> Dict[str, Any]:
     current_tf: List[Tuple[str, Any, List[str]]] = []
     grouped: List[List[Tuple[str, Any, List[str]]]] = []
     for t, v, imgs in tf_items:
-        if t == "p" and isinstance(v, str) and re.match(r"^Câu\s*\d+", v.strip()):
+        if t == "p" and isinstance(v, str) and _starts_with_cau(v):
             if current_tf:
                 grouped.append(current_tf)
             current_tf = [(t, v, imgs)]
@@ -384,8 +448,37 @@ def parse_docx(path: str, image_dir: str, url_prefix: str) -> Dict[str, Any]:
             parsed["images"] = imgs
             tf_qs.append(parsed)
 
+    # Short-answer questions
+    sa_qs: List[Dict[str, Any]] = []
+    sa_groups: List[List[Tuple[str, Any, List[str]]]] = []
+    sa_current: List[Tuple[str, Any, List[str]]] = []
+    for t, v, imgs in sa_items:
+        if t == "p" and isinstance(v, str) and _starts_with_cau(v):
+            if sa_current:
+                sa_groups.append(sa_current)
+            sa_current = [(t, v, imgs)]
+        else:
+            sa_current.append((t, v, imgs))
+    if sa_current:
+        sa_groups.append(sa_current)
+    for g in sa_groups:
+        texts = [v for t, v, _ in g if t == "p"]
+        imgs: List[str] = []
+        for t, _v, im in g:
+            imgs.extend(im)
+        if not texts:
+            continue
+        block = "\n".join(texts)
+        parsed = _parse_short_answer(block)
+        if parsed:
+            parsed["images"] = imgs
+            if parsed.get("answer") is None:
+                warnings.append(f"Không tìm thấy đáp án cho câu trả lời ngắn: {parsed['question'][:60]}…")
+            sa_qs.append(parsed)
+
     return {
         "sections": out_sections,
         "tf_questions": tf_qs,
+        "short_answer_questions": sa_qs,
         "warnings": warnings,
     }

@@ -1,9 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { api, type StartExamResponse, type PublicQuestion, type PublicQuestionMC, type PublicQuestionTF } from "../api";
+import { api, type StartExamResponse, type PublicQuestion, type PublicQuestionMC, type PublicQuestionTF, type PublicQuestionSA } from "../api";
 import { RichText } from "../components/RichText";
 
 type Answers = Record<string, string | Record<string, boolean>>;
+
+function typeLabel(t: string) {
+  if (t === "mc") return "Trắc nghiệm";
+  if (t === "tf") return "Đúng/Sai";
+  if (t === "sa") return "Trả lời ngắn";
+  return t;
+}
 
 export default function StudentExam() {
   const { attemptId } = useParams();
@@ -61,6 +68,10 @@ export default function StudentExam() {
     });
   }, []);
 
+  const setSaAnswer = useCallback((qid: number, value: string) => {
+    setAnswers((a) => ({ ...a, [String(qid)]: value }));
+  }, []);
+
   const submit = useCallback(async () => {
     if (submittedRef.current || !data) return;
     submittedRef.current = true;
@@ -89,6 +100,7 @@ export default function StudentExam() {
         const statements = Object.keys(q.statements);
         if (statements.every((l) => typeof (a as Record<string, boolean>)[l] === "boolean")) set.add(q.id);
       }
+      if (q.type === "sa" && typeof a === "string" && a.trim()) set.add(q.id);
     }
     return set;
   }, [answers, data]);
@@ -146,11 +158,19 @@ export default function StudentExam() {
                 </span>
               )}
               <span className="badge" style={{ marginLeft: 10 }}>
-                {q.type === "mc" ? "Trắc nghiệm" : "Đúng/Sai"}
+                {typeLabel(q.type)}
               </span>
             </div>
             <div className="question-text"><RichText text={q.question} /></div>
-            {q.type === "mc" ? <McInput q={q} answer={answers[String(q.id)] as string} onChange={(l) => setMcAnswer(q.id, l)} /> : <TfInput q={q} answer={answers[String(q.id)] as Record<string, boolean>} onChange={(l, v) => setTfAnswer(q.id, l, v)} />}
+            {q.type === "mc" && (
+              <McInput q={q} answer={answers[String(q.id)] as string} onChange={(l) => setMcAnswer(q.id, l)} />
+            )}
+            {q.type === "tf" && (
+              <TfInput q={q} answer={answers[String(q.id)] as Record<string, boolean>} onChange={(l, v) => setTfAnswer(q.id, l, v)} />
+            )}
+            {q.type === "sa" && (
+              <SaInput q={q} answer={answers[String(q.id)] as string} onChange={(v) => setSaAnswer(q.id, v)} />
+            )}
             <div className="exam-nav-buttons">
               <button
                 className="btn secondary"
@@ -236,6 +256,35 @@ function McInput({
           <span style={{ flex: 1 }}><RichText text={text} /></span>
         </label>
       ))}
+    </div>
+  );
+}
+
+function SaInput({
+  q,
+  answer,
+  onChange,
+}: {
+  q: PublicQuestion;
+  answer: string;
+  onChange: (value: string) => void;
+}) {
+  const sa = q as PublicQuestionSA;
+  return (
+    <div>
+      <div className="muted" style={{ marginBottom: 8 }}>
+        Nhập đáp án ngắn (số hoặc chuỗi). Có thể là 1 con số (ví dụ: 4) hoặc một dãy số (ví dụ: 1234).
+      </div>
+      <input
+        type="text"
+        className="input"
+        value={answer || ""}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="Nhập đáp án..."
+        style={{ fontSize: 18, padding: "10px 14px", width: "100%", maxWidth: 360 }}
+        autoComplete="off"
+        aria-label={`Đáp án câu ${sa.order_index}`}
+      />
     </div>
   );
 }

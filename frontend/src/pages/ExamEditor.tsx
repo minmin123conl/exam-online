@@ -170,17 +170,21 @@ function InfoTab({ exam, reload, onDelete }: { exam: ExamFull; reload: () => voi
 function QuestionsTab({ exam, reload }: { exam: ExamFull; reload: () => void }) {
   const [editing, setEditing] = useState<Question | null>(null);
   const [adding, setAdding] = useState(false);
-  const [filter, setFilter] = useState<"all" | "missing" | "mc" | "tf">("all");
+  const [filter, setFilter] = useState<"all" | "missing" | "mc" | "tf" | "sa">("all");
   const [search, setSearch] = useState("");
 
   const visibleQuestions = useMemo(() => {
     return exam.questions
       .map((q, idx) => ({ q, idx }))
       .filter(({ q }) => {
-        if (filter === "missing" && q.type === "mc" && q.data.answer) return false;
-        if (filter === "missing" && q.type === "tf") return false;
+        if (filter === "missing") {
+          if (q.type === "mc" && q.data.answer) return false;
+          if (q.type === "sa" && q.data.answer) return false;
+          if (q.type === "tf") return false;
+        }
         if (filter === "mc" && q.type !== "mc") return false;
         if (filter === "tf" && q.type !== "tf") return false;
+        if (filter === "sa" && q.type !== "sa") return false;
         if (search) {
           const txt = (q.data.question as string || "").toLowerCase();
           if (!txt.includes(search.toLowerCase())) return false;
@@ -189,7 +193,9 @@ function QuestionsTab({ exam, reload }: { exam: ExamFull; reload: () => void }) 
       });
   }, [exam.questions, filter, search]);
 
-  const numMissing = exam.questions.filter((q) => q.type === "mc" && !q.data.answer).length;
+  const numMissing = exam.questions.filter((q) =>
+    (q.type === "mc" && !q.data.answer) || (q.type === "sa" && !q.data.answer)
+  ).length;
 
   return (
     <div>
@@ -197,7 +203,8 @@ function QuestionsTab({ exam, reload }: { exam: ExamFull; reload: () => void }) 
         <button className="btn" onClick={() => setAdding(true)}>+ Thêm câu hỏi</button>
         <span className="muted">
           {exam.questions.filter((q) => q.type === "mc").length} trắc nghiệm, {" "}
-          {exam.questions.filter((q) => q.type === "tf").length} đúng/sai
+          {exam.questions.filter((q) => q.type === "tf").length} đúng/sai, {" "}
+          {exam.questions.filter((q) => q.type === "sa").length} trả lời ngắn
         </span>
         {numMissing > 0 && (
           <span className="badge danger">⚠ {numMissing} câu thiếu đáp án</span>
@@ -223,6 +230,12 @@ function QuestionsTab({ exam, reload }: { exam: ExamFull; reload: () => void }) 
           onClick={() => setFilter("tf")}
         >
           Đúng/Sai
+        </button>
+        <button
+          className={`btn sm ${filter === "sa" ? "" : "secondary"}`}
+          onClick={() => setFilter("sa")}
+        >
+          Trả lời ngắn
         </button>
         <button
           className={`btn sm ${filter === "missing" ? "danger" : "secondary"}`}
@@ -277,7 +290,9 @@ function QuestionsTab({ exam, reload }: { exam: ExamFull; reload: () => void }) 
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
               <div>
                 <span className="question-number">Câu {idx + 1}</span>{" "}
-                <span className="badge">{q.type === "mc" ? "Trắc nghiệm" : "Đúng/Sai"}</span>{" "}
+                <span className="badge">
+                  {q.type === "mc" ? "Trắc nghiệm" : q.type === "tf" ? "Đúng/Sai" : "Trả lời ngắn"}
+                </span>{" "}
                 {q.section && <span className="muted">{q.section}</span>}
               </div>
               <div style={{ display: "flex", gap: 6 }}>
@@ -310,6 +325,19 @@ function QuestionsTab({ exam, reload }: { exam: ExamFull; reload: () => void }) 
                 {!q.data.answer && (
                   <div className="error" style={{ marginTop: 6 }}>
                     Chưa có đáp án — hãy bấm "Sửa" để chọn đáp án đúng.
+                  </div>
+                )}
+              </div>
+            )}
+            {q.type === "sa" && (
+              <div className="stack">
+                <div className="option">
+                  <span className="muted" style={{ flex: 1 }}>Đáp án ngắn:</span>
+                  <strong>{(q.data.answer as string) || "—"}</strong>
+                </div>
+                {!q.data.answer && (
+                  <div className="error" style={{ marginTop: 6 }}>
+                    Chưa có đáp án — hãy bấm "Sửa" để nhập đáp án.
                   </div>
                 )}
               </div>
@@ -395,7 +423,7 @@ function QuestionForm({
   onSaved: () => void;
   onCancel: () => void;
 }) {
-  const [type, setType] = useState<"mc" | "tf">(question?.type || "mc");
+  const [type, setType] = useState<"mc" | "tf" | "sa">(question?.type || "mc");
   const [section, setSection] = useState(question?.section || "");
   const [text, setText] = useState(((question?.data.question as string) || "") as string);
   const [points, setPoints] = useState(question?.points || 1.0);
@@ -414,12 +442,17 @@ function QuestionForm({
     (question?.data.answers as Record<string, boolean>) || { a: false, b: false, c: false, d: false },
   );
 
+  // Short-answer state
+  const [saAnswer, setSaAnswer] = useState<string>((question?.data.answer as string) || "");
+
   async function save() {
     let data: Record<string, unknown>;
     if (type === "mc") {
       data = { question: text, options: mcOptions, answer: mcAnswer };
-    } else {
+    } else if (type === "tf") {
       data = { question: text, statements: tfStatements, answers: tfAnswers };
+    } else {
+      data = { question: text, answer: saAnswer.trim() };
     }
     const body: QuestionIn = {
       type,
@@ -446,9 +479,10 @@ function QuestionForm({
       <div className="row">
         <div className="field">
           <label>Loại</label>
-          <select value={type} onChange={(e) => setType(e.target.value as "mc" | "tf")} disabled={!!question}>
+          <select value={type} onChange={(e) => setType(e.target.value as "mc" | "tf" | "sa")} disabled={!!question}>
             <option value="mc">Trắc nghiệm (A/B/C/D - chọn 1)</option>
             <option value="tf">Đúng/Sai (4 ý a, b, c, d)</option>
+            <option value="sa">Trả lời ngắn (số/chuỗi)</option>
           </select>
         </div>
         <div className="field">
@@ -479,7 +513,20 @@ function QuestionForm({
         )}
       </div>
 
-      {type === "mc" ? (
+      {type === "sa" ? (
+        <div className="field">
+          <label>Đáp án đúng (số hoặc chuỗi ngắn)</label>
+          <input
+            className="input"
+            value={saAnswer}
+            onChange={(e) => setSaAnswer(e.target.value)}
+            placeholder="Ví dụ: 4 hoặc 1234"
+          />
+          <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+            So sánh không phân biệt hoa/thường và bỏ qua khoảng trắng — "1 2 3 4" được tính bằng "1234".
+          </div>
+        </div>
+      ) : type === "mc" ? (
         <div className="stack">
           {["A", "B", "C", "D"].map((letter) => (
             <div key={letter} className="row" style={{ alignItems: "center" }}>
@@ -777,6 +824,15 @@ function ResultsTab({ examId }: { examId: number }) {
                       </div>
                     );
                   })}
+                </div>
+              )}
+              {d.type === "sa" && (
+                <div className={`option ${d.is_correct ? "correct-highlight" : "wrong-highlight"}`}>
+                  <span style={{ flex: 1 }}>
+                    <span className="muted">Đáp án của HS: </span>
+                    <strong>{(d.your_answer as string) || "—"}</strong>
+                  </span>
+                  <span className="muted">Đáp án đúng: <strong>{(d.correct as string) || "—"}</strong></span>
                 </div>
               )}
               {d.type === "tf" && d.statements && (
