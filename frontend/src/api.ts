@@ -267,6 +267,7 @@ export interface ExamIn {
   duration_minutes: number;
   is_active: boolean;
   show_leaderboard: boolean;
+  shuffle_mode?: string;
 }
 
 export interface ExamSummary extends ExamIn {

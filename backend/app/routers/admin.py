@@ -614,7 +614,9 @@ def get_attempt(attempt_id: int, db: Session = Depends(get_db), _: models.Admin 
     if not a:
         raise HTTPException(404, "Không tìm thấy lượt làm bài")
     exam = a.exam
-    score, total, num_correct, details = grade_attempt(exam, a.answers or {})
+    score, total, num_correct, details = grade_attempt(
+        exam, a.answers or {}, order_ids=a.question_order or None,
+    )
     return {
         "attempt_id": a.id,
         "exam_id": exam.id,

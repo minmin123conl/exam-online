@@ -16,19 +16,25 @@ DEFAULT_ADMIN_PASSWORD = os.environ.get("EXAM_ADMIN_PASSWORD", "admin123")
 SEED_FILE = Path(__file__).resolve().parent.parent / "exam_data.json"
 
 
-def _migrate_admin_columns():
-    """Add new columns to existing admins table for backwards compatibility (SQLite)."""
+def _migrate_columns():
+    """Add new columns to existing tables for backwards compatibility (SQLite)."""
     with engine.begin() as conn:
-        cols = {row[1] for row in conn.execute(text("PRAGMA table_info(admins)"))}
-        if cols and "role" not in cols:
+        admin_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(admins)"))}
+        if admin_cols and "role" not in admin_cols:
             conn.execute(text("ALTER TABLE admins ADD COLUMN role VARCHAR DEFAULT 'super' NOT NULL"))
-        if cols and "must_change_password" not in cols:
+        if admin_cols and "must_change_password" not in admin_cols:
             conn.execute(text("ALTER TABLE admins ADD COLUMN must_change_password BOOLEAN DEFAULT 0 NOT NULL"))
+        exam_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(exams)"))}
+        if exam_cols and "shuffle_mode" not in exam_cols:
+            conn.execute(text("ALTER TABLE exams ADD COLUMN shuffle_mode VARCHAR DEFAULT 'none' NOT NULL"))
+        attempt_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(attempts)"))}
+        if attempt_cols and "question_order" not in attempt_cols:
+            conn.execute(text("ALTER TABLE attempts ADD COLUMN question_order JSON"))
 
 
 def init_db_and_seed():
     Base.metadata.create_all(bind=engine)
-    _migrate_admin_columns()
+    _migrate_columns()
     db: Session = SessionLocal()
     try:
         # Admin

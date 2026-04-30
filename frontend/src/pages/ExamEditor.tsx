@@ -81,6 +81,7 @@ function InfoTab({ exam, reload, onDelete }: { exam: ExamFull; reload: () => voi
   const [duration, setDuration] = useState(exam.duration_minutes);
   const [active, setActive] = useState(exam.is_active);
   const [showLb, setShowLb] = useState(exam.show_leaderboard);
+  const [shuffleMode, setShuffleMode] = useState<string>(exam.shuffle_mode || "none");
   const [saving, setSaving] = useState(false);
 
   async function save() {
@@ -92,6 +93,7 @@ function InfoTab({ exam, reload, onDelete }: { exam: ExamFull; reload: () => voi
         duration_minutes: duration,
         is_active: active,
         show_leaderboard: showLb,
+        shuffle_mode: shuffleMode,
       });
       reload();
     } catch (e) {
@@ -142,6 +144,17 @@ function InfoTab({ exam, reload, onDelete }: { exam: ExamFull; reload: () => voi
             <option value="1">Hiện bảng xếp hạng công khai</option>
             <option value="0">Ẩn bảng xếp hạng</option>
           </select>
+        </div>
+        <div className="field">
+          <label>Đảo câu hỏi</label>
+          <select value={shuffleMode} onChange={(e) => setShuffleMode(e.target.value)}>
+            <option value="none">Không đảo (giữ thứ tự đề gốc)</option>
+            <option value="by_group">Đảo trong từng nhóm (Trắc nghiệm / Đúng-Sai)</option>
+            <option value="all">Đảo toàn bộ (trộn ngẫu nhiên không phân nhóm)</option>
+          </select>
+          <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+            Mỗi học sinh sẽ nhận một thứ tự câu hỏi độc lập khi vào làm.
+          </div>
         </div>
       </div>
       <div style={{ display: "flex", gap: 8, justifyContent: "space-between" }}>

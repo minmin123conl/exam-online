@@ -1,7 +1,8 @@
 """Student API: start attempt with code, submit answers, view results, leaderboard."""
 import asyncio
+import random
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -14,30 +15,61 @@ from ..ws_manager import manager
 router = APIRouter(prefix="/api", tags=["student"])
 
 
-def _build_public_questions(exam: models.Exam):
-    out = []
-    for q in exam.questions:
-        d = q.data or {}
-        if q.type == "mc":
-            out.append({
-                "id": q.id,
-                "type": "mc",
-                "section": q.section or "",
-                "order_index": q.order_index,
-                "points": q.points,
-                "question": d.get("question", ""),
-                "options": d.get("options", {}),
-            })
-        elif q.type == "tf":
-            out.append({
-                "id": q.id,
-                "type": "tf",
-                "section": q.section or "",
-                "order_index": q.order_index,
-                "points": q.points,
-                "question": d.get("question", ""),
-                "statements": d.get("statements", {}),
-            })
+def _question_to_public(q: models.Question) -> dict:
+    d = q.data or {}
+    if q.type == "mc":
+        return {
+            "id": q.id,
+            "type": "mc",
+            "section": q.section or "",
+            "order_index": q.order_index,
+            "points": q.points,
+            "question": d.get("question", ""),
+            "options": d.get("options", {}),
+        }
+    return {
+        "id": q.id,
+        "type": "tf",
+        "section": q.section or "",
+        "order_index": q.order_index,
+        "points": q.points,
+        "question": d.get("question", ""),
+        "statements": d.get("statements", {}),
+    }
+
+
+def _compute_question_order(exam: models.Exam) -> List[int]:
+    """Return question IDs in display order based on exam.shuffle_mode."""
+    questions = list(exam.questions)
+    mode = (exam.shuffle_mode or "none").lower()
+    if mode == "all":
+        ids = [q.id for q in questions]
+        random.shuffle(ids)
+        return ids
+    if mode == "by_group":
+        # Shuffle within each (type) group, preserve relative order of groups
+        # Group key = (type), groups appear in their first-seen order
+        from collections import OrderedDict
+        groups: "OrderedDict[str, list[int]]" = OrderedDict()
+        for q in questions:
+            groups.setdefault(q.type, []).append(q.id)
+        out: List[int] = []
+        for ids in groups.values():
+            random.shuffle(ids)
+            out.extend(ids)
+        return out
+    return [q.id for q in questions]
+
+
+def _build_public_questions(exam: models.Exam, order_ids: Optional[List[int]] = None) -> List[dict]:
+    by_id = {q.id: q for q in exam.questions}
+    if not order_ids:
+        order_ids = [q.id for q in exam.questions]
+    out: List[dict] = []
+    for qid in order_ids:
+        q = by_id.get(qid)
+        if q is not None:
+            out.append(_question_to_public(q))
     return out
 
 
@@ -77,6 +109,7 @@ def start_attempt(body: schemas.StartAttemptRequest, db: Session = Depends(get_d
     # Mark code used and create attempt
     c.used_by = body.student_name.strip()
     c.used_at = datetime.utcnow()
+    order_ids = _compute_question_order(exam)
     attempt = models.Attempt(
         exam_id=exam.id,
         code_id=c.id,
@@ -84,6 +117,7 @@ def start_attempt(body: schemas.StartAttemptRequest, db: Session = Depends(get_d
         student_class=(body.student_class or "").strip(),
         started_at=datetime.utcnow(),
         answers={},
+        question_order=order_ids,
     )
     db.add(attempt)
     db.commit()
@@ -97,7 +131,7 @@ def start_attempt(body: schemas.StartAttemptRequest, db: Session = Depends(get_d
             "duration_minutes": exam.duration_minutes,
             "show_leaderboard": exam.show_leaderboard,
         },
-        questions=_build_public_questions(exam),
+        questions=_build_public_questions(exam, order_ids),
         started_at=attempt.started_at,
         duration_minutes=exam.duration_minutes,
         student_name=attempt.student_name,
@@ -112,7 +146,9 @@ async def submit_attempt(body: schemas.SubmitAttemptRequest, db: Session = Depen
     if a.submitted_at is not None:
         raise HTTPException(403, "Bạn đã nộp bài rồi")
     exam = a.exam
-    score, total, num_correct, details = grade_attempt(exam, body.answers or {})
+    score, total, num_correct, details = grade_attempt(
+        exam, body.answers or {}, order_ids=a.question_order or None,
+    )
     a.answers = body.answers or {}
     a.score = score
     a.total_points = total
@@ -160,7 +196,9 @@ def get_result(attempt_id: int, db: Session = Depends(get_db)):
     if a.submitted_at is None:
         raise HTTPException(403, "Bạn chưa nộp bài")
     exam = a.exam
-    score, total, num_correct, details = grade_attempt(exam, a.answers or {})
+    score, total, num_correct, details = grade_attempt(
+        exam, a.answers or {}, order_ids=a.question_order or None,
+    )
     return {
         "attempt_id": a.id,
         "exam_id": exam.id,

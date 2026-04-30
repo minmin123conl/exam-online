@@ -26,6 +26,7 @@ class Exam(Base):
     duration_minutes = Column(Integer, default=45)
     is_active = Column(Boolean, default=True)
     show_leaderboard = Column(Boolean, default=True)
+    shuffle_mode = Column(String, default="none", nullable=False)  # none | by_group | all
     created_at = Column(DateTime, default=datetime.utcnow)
     questions = relationship("Question", back_populates="exam", cascade="all, delete-orphan", order_by="Question.order_index")
     codes = relationship("ExamCode", back_populates="exam", cascade="all, delete-orphan")
@@ -70,6 +71,7 @@ class Attempt(Base):
     submitted_at = Column(DateTime, nullable=True)
     # answers: dict {question_id: "A"} for MC; {question_id: {"a": true, ...}} for TF
     answers = Column(JSON, default=dict)
+    question_order = Column(JSON, default=list)  # list of question IDs in display order (if shuffled)
     score = Column(Float, default=0.0)
     total_points = Column(Float, default=0.0)
     duration_seconds = Column(Integer, default=0)

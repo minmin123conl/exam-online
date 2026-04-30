@@ -81,6 +81,7 @@ class ExamIn(BaseModel):
     duration_minutes: int = 45
     is_active: bool = True
     show_leaderboard: bool = True
+    shuffle_mode: str = "none"  # none | by_group | all
 
 
 class ExamSummary(ExamIn):

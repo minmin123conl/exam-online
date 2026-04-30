@@ -1,17 +1,33 @@
 """Grading logic."""
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from . import models
 
 
-def grade_attempt(exam: models.Exam, answers: Dict[str, Any]) -> Tuple[float, float, int, List[Dict[str, Any]]]:
-    """Return (score, total_points, num_correct_questions, details)."""
+def grade_attempt(
+    exam: models.Exam,
+    answers: Dict[str, Any],
+    order_ids: Optional[List[int]] = None,
+) -> Tuple[float, float, int, List[Dict[str, Any]]]:
+    """Return (score, total_points, num_correct_questions, details).
+
+    If order_ids is provided, details are returned in that order.
+    """
     total_points = 0.0
     score = 0.0
     num_correct = 0
     details: List[Dict[str, Any]] = []
 
-    for q in exam.questions:
+    if order_ids:
+        by_id = {q.id: q for q in exam.questions}
+        questions_iter = [by_id[i] for i in order_ids if i in by_id]
+        # Append any questions not in order_ids (defensive)
+        seen = set(order_ids)
+        questions_iter += [q for q in exam.questions if q.id not in seen]
+    else:
+        questions_iter = list(exam.questions)
+
+    for q in questions_iter:
         total_points += q.points
         your = answers.get(str(q.id))
         data = q.data or {}
