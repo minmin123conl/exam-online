@@ -237,6 +237,25 @@ label {
   font-family: "Cambria Math", "STIX Two Math", "Latin Modern Math", serif;
   font-style: italic;
 }
+.rt-table {
+  display: table;
+  border-collapse: collapse;
+  margin: 8px 0;
+  width: auto;
+  max-width: 100%;
+  font-size: 14px;
+  background: #fff;
+}
+.rt-table td {
+  border: 1px solid #cbd5e1;
+  padding: 6px 10px;
+  vertical-align: top;
+  white-space: pre-wrap;
+}
+.rt-table tr:first-child td {
+  background: #f1f5f9;
+  font-weight: 600;
+}
 
 .sidebar-nav {
   background: #fff;

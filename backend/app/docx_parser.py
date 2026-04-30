@@ -31,7 +31,9 @@ The output schema matches what the rest of the backend expects:
 """
 from __future__ import annotations
 
+import base64
 import hashlib
+import json
 import os
 import re
 from typing import Any, Dict, List, Optional, Tuple
@@ -169,6 +171,46 @@ def _table_answers(tbl) -> Dict[str, bool]:
                 val = m.group(2)
                 results[letter] = val.lower().startswith("đ")
     return results
+
+
+def _is_tf_answer_table(rows: List[List[str]]) -> bool:
+    """A TF answer table is a 1×4 (or 4×1) grid of '<letter>) Đúng|Sai' cells."""
+    flat = [_strip_red(c).strip() for r in rows for c in r if _strip_red(c).strip()]
+    if len(flat) != 4:
+        return False
+    for c in flat:
+        if not re.match(r"^[a-dA-D]\)?\s*(Đúng|Sai)\.?$", c, re.IGNORECASE):
+            return False
+    return True
+
+
+def _table_to_rows(tbl, doc_part, image_dir: str, url_prefix: str) -> List[List[str]]:
+    """Extract table cells preserving inline markers (IMG/MATH).
+
+    Returns a list of rows, each row a list of cell text strings. Newlines
+    inside a cell are preserved as '\n'.
+    """
+    rows: List[List[str]] = []
+    for tr in tbl.findall(qn("w:tr")):
+        row: List[str] = []
+        for tc in tr.findall(qn("w:tc")):
+            paragraphs: List[str] = []
+            for p in tc.findall(qn("w:p")):
+                txt, _imgs = _walk_paragraph(p, doc_part, image_dir, url_prefix)
+                txt = _strip_red(txt).strip()
+                if txt:
+                    paragraphs.append(txt)
+            row.append("\n".join(paragraphs))
+        if row:
+            rows.append(row)
+    return rows
+
+
+def _table_marker(rows: List[List[str]]) -> str:
+    """Encode rows as a base64-wrapped TABLE marker, safe for inline storage."""
+    payload = json.dumps(rows, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    b64 = base64.b64encode(payload).decode("ascii")
+    return f"[TABLE:{b64}]"
 
 
 def _strip_red(s: str) -> str:
@@ -342,8 +384,15 @@ def parse_docx(path: str, image_dir: str, url_prefix: str) -> Dict[str, Any]:
                     url = _save_image(doc.part.related_parts[rid], image_dir, url_prefix)
                     if url:
                         table_imgs.append(url)
+            rows = _table_to_rows(child, doc.part, image_dir, url_prefix)
             answers = _table_answers(child)
-            items.append(("tbl", answers, table_imgs))
+            tbl_obj = {
+                "answers": answers,
+                "rows": rows,
+                "marker": _table_marker(rows),
+                "is_answer_table": _is_tf_answer_table(rows),
+            }
+            items.append(("tbl", tbl_obj, table_imgs))
 
     # Locate True/False section header and Short-answer section header.
     # Match both Roman numerals (Phần II) and Vietnamese numbers (Phần 2.) variations,
@@ -402,13 +451,19 @@ def parse_docx(path: str, image_dir: str, url_prefix: str) -> Dict[str, Any]:
             questions.append(current)
         section_qs: List[Dict[str, Any]] = []
         for q_blocks in questions:
-            texts = [v for t, v, _ in q_blocks if t == "p"]
+            # Build block text in original document order, including content
+            # tables (rendered as [TABLE:...] markers).
+            parts: List[str] = []
             imgs: List[str] = []
-            for t, _v, im in q_blocks:
+            for t, v, im in q_blocks:
                 imgs.extend(im)
-            if not texts:
+                if t == "p" and isinstance(v, str):
+                    parts.append(v)
+                elif t == "tbl" and isinstance(v, dict) and not v.get("is_answer_table"):
+                    parts.append(v.get("marker", ""))
+            if not parts:
                 continue
-            block = "\n".join(texts)
+            block = "\n".join(parts)
             parsed = _parse_mc(block)
             if parsed:
                 parsed["images"] = imgs
@@ -432,18 +487,26 @@ def parse_docx(path: str, image_dir: str, url_prefix: str) -> Dict[str, Any]:
     if current_tf:
         grouped.append(current_tf)
     for g in grouped:
-        texts = [v for t, v, _ in g if t == "p"]
-        tables = [v for t, v, _ in g if t == "tbl"]
+        # Separate content (paragraphs + non-answer tables) from answer table.
+        parts: List[str] = []
+        answer_table_obj: Optional[Dict[str, Any]] = None
         imgs: List[str] = []
-        for t, _v, im in g:
+        for t, v, im in g:
             imgs.extend(im)
-        if not texts:
+            if t == "p" and isinstance(v, str):
+                parts.append(v)
+            elif t == "tbl" and isinstance(v, dict):
+                if v.get("is_answer_table") and answer_table_obj is None:
+                    answer_table_obj = v
+                else:
+                    parts.append(v.get("marker", ""))
+        if not parts:
             continue
-        if not tables:
+        if answer_table_obj is None:
             warnings.append("Câu Đúng/Sai thiếu bảng đáp án — bỏ qua.")
             continue
-        block = "\n".join(texts)
-        parsed = _parse_tf(block, tables[0])
+        block = "\n".join(parts)
+        parsed = _parse_tf(block, answer_table_obj.get("answers") or {})
         if parsed:
             parsed["images"] = imgs
             tf_qs.append(parsed)
