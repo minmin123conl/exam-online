@@ -176,7 +176,7 @@ def delete_admin_user(
 def _exam_summary(exam: models.Exam, db: Session) -> schemas.ExamSummary:
     num_codes = db.query(func.count(models.ExamCode.id)).filter(models.ExamCode.exam_id == exam.id).scalar() or 0
     num_codes_used = db.query(func.count(models.ExamCode.id)).filter(
-        models.ExamCode.exam_id == exam.id, models.ExamCode.used_at.isnot(None)
+        models.ExamCode.exam_id == exam.id, models.ExamCode.uses_count > 0
     ).scalar() or 0
     num_attempts = db.query(func.count(models.Attempt.id)).filter(
         models.Attempt.exam_id == exam.id, models.Attempt.submitted_at.isnot(None)
@@ -524,7 +524,7 @@ def generate_codes(
         else:
             raise HTTPException(500, "Không tạo được mã ngẫu nhiên duy nhất, thử lại")
         note = f"{body.note_prefix}{i + 1:02d}" if body.note_prefix else ""
-        c = models.ExamCode(exam_id=exam_id, code=code, note=note)
+        c = models.ExamCode(exam_id=exam_id, code=code, note=note, max_uses=body.max_uses)
         db.add(c)
         created.append(c)
     db.commit()
@@ -548,7 +548,7 @@ def add_code(
         raise HTTPException(400, "Mã không được rỗng")
     if db.query(models.ExamCode).filter(models.ExamCode.code == code).first():
         raise HTTPException(400, "Mã đã tồn tại")
-    c = models.ExamCode(exam_id=exam_id, code=code, note=body.note)
+    c = models.ExamCode(exam_id=exam_id, code=code, note=body.note, max_uses=body.max_uses)
     db.add(c)
     db.commit()
     db.refresh(c)
@@ -581,8 +581,29 @@ def reset_code(
         raise HTTPException(404, "Không tìm thấy mã")
     c.used_by = None
     c.used_at = None
+    c.uses_count = 0
     db.commit()
     return {"ok": True}
+
+
+@router.patch("/codes/{code_id}", response_model=schemas.ExamCodeOut)
+def update_code(
+    code_id: int,
+    body: schemas.UpdateCodeRequest,
+    db: Session = Depends(get_db),
+    _: models.Admin = Depends(require_write),
+):
+    """Sửa ghi chú / số lần dùng tối đa của mã."""
+    c = db.query(models.ExamCode).filter(models.ExamCode.id == code_id).first()
+    if not c:
+        raise HTTPException(404, "Không tìm thấy mã")
+    if body.note is not None:
+        c.note = body.note
+    if body.max_uses is not None:
+        c.max_uses = body.max_uses
+    db.commit()
+    db.refresh(c)
+    return c
 
 
 # ---- Attempts / results ----

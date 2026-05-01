@@ -53,11 +53,15 @@ class ExamCode(Base):
     exam_id = Column(Integer, ForeignKey("exams.id", ondelete="CASCADE"), nullable=False)
     code = Column(String, unique=True, nullable=False, index=True)
     note = Column(String, default="")  # e.g., student name this code is reserved for
-    used_by = Column(String, nullable=True)  # student name that used this code
+    # Last user info (set/overwritten on each use)
+    used_by = Column(String, nullable=True)
     used_at = Column(DateTime, nullable=True)
+    # 0 = unlimited; otherwise the maximum number of times this code can be used
+    max_uses = Column(Integer, nullable=False, default=1)
+    uses_count = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
     exam = relationship("Exam", back_populates="codes")
-    attempt = relationship("Attempt", back_populates="code", uselist=False)
+    attempts = relationship("Attempt", back_populates="code")
 
 
 class Attempt(Base):
@@ -76,7 +80,7 @@ class Attempt(Base):
     total_points = Column(Float, default=0.0)
     duration_seconds = Column(Integer, default=0)
     exam = relationship("Exam", back_populates="attempts")
-    code = relationship("ExamCode", back_populates="attempt")
+    code = relationship("ExamCode", back_populates="attempts")
 
 
 Index("idx_attempt_exam_score", Attempt.exam_id, Attempt.score.desc())
