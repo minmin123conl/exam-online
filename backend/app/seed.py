@@ -30,6 +30,20 @@ def _migrate_columns():
         attempt_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(attempts)"))}
         if attempt_cols and "question_order" not in attempt_cols:
             conn.execute(text("ALTER TABLE attempts ADD COLUMN question_order JSON"))
+        code_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(exam_codes)"))}
+        added_use_cols = False
+        if code_cols and "max_uses" not in code_cols:
+            conn.execute(text("ALTER TABLE exam_codes ADD COLUMN max_uses INTEGER NOT NULL DEFAULT 1"))
+            added_use_cols = True
+        if code_cols and "uses_count" not in code_cols:
+            conn.execute(text("ALTER TABLE exam_codes ADD COLUMN uses_count INTEGER NOT NULL DEFAULT 0"))
+            added_use_cols = True
+        if added_use_cols:
+            # Backfill: codes that were already used (used_at is set) keep counting as used (1/1).
+            conn.execute(text(
+                "UPDATE exam_codes SET uses_count = 1 "
+                "WHERE uses_count = 0 AND used_at IS NOT NULL"
+            ))
 
 
 def init_db_and_seed():

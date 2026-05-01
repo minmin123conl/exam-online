@@ -116,17 +116,20 @@ def start_attempt(body: schemas.StartAttemptRequest, db: Session = Depends(get_d
     c = db.query(models.ExamCode).filter(models.ExamCode.code == code).first()
     if not c:
         raise HTTPException(404, "Mã thi không tồn tại")
-    if c.used_at is not None:
-        raise HTTPException(
-            403,
-            f"Mã thi này đã được dùng bởi {c.used_by}. Mỗi mã chỉ sử dụng một lần.",
-        )
+    # max_uses == 0 means unlimited; otherwise enforce the cap
+    if c.max_uses and c.uses_count >= c.max_uses:
+        if c.max_uses == 1:
+            msg = f"Mã thi này đã được dùng bởi {c.used_by}. Mỗi mã chỉ sử dụng một lần."
+        else:
+            msg = f"Mã thi này đã đạt giới hạn sử dụng ({c.uses_count}/{c.max_uses})."
+        raise HTTPException(403, msg)
     exam = c.exam
     if not exam.is_active:
         raise HTTPException(403, "Đề thi hiện đang bị khoá")
-    # Mark code used and create attempt
+    # Increment usage and update last-user info (overwrite on every use)
     c.used_by = body.student_name.strip()
     c.used_at = datetime.utcnow()
+    c.uses_count = (c.uses_count or 0) + 1
     order_ids = _compute_question_order(exam)
     attempt = models.Attempt(
         exam_id=exam.id,

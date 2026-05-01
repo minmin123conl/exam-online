@@ -107,6 +107,8 @@ class ExamCodeOut(BaseModel):
     note: str = ""
     used_by: Optional[str] = None
     used_at: Optional[datetime] = None
+    max_uses: int = 1
+    uses_count: int = 0
     created_at: datetime
 
     class Config:
@@ -116,11 +118,18 @@ class ExamCodeOut(BaseModel):
 class GenerateCodesRequest(BaseModel):
     count: int = Field(1, ge=1, le=500)
     note_prefix: str = ""
+    max_uses: int = Field(1, ge=0, le=10000)
 
 
 class AddCodeRequest(BaseModel):
     code: str
     note: str = ""
+    max_uses: int = Field(1, ge=0, le=10000)
+
+
+class UpdateCodeRequest(BaseModel):
+    note: Optional[str] = None
+    max_uses: Optional[int] = Field(None, ge=0, le=10000)
 
 
 class StartAttemptRequest(BaseModel):
