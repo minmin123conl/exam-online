@@ -4,7 +4,7 @@ import secrets
 import string
 import tempfile
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.security import OAuth2PasswordRequestForm
@@ -188,6 +188,7 @@ def _exam_summary(exam: models.Exam, db: Session) -> schemas.ExamSummary:
         duration_minutes=exam.duration_minutes,
         is_active=exam.is_active,
         show_leaderboard=exam.show_leaderboard,
+        shuffle_mode=exam.shuffle_mode or "none",
         created_at=exam.created_at,
         num_questions=len(exam.questions),
         num_codes=num_codes,
@@ -202,6 +203,16 @@ def list_exams(db: Session = Depends(get_db), _: models.Admin = Depends(get_curr
     return [_exam_summary(e, db) for e in exams]
 
 
+_VALID_SHUFFLE_MODES = {"none", "by_group", "all"}
+
+
+def _normalize_shuffle_mode(value: Optional[str]) -> str:
+    mode = (value or "none").strip().lower()
+    if mode not in _VALID_SHUFFLE_MODES:
+        raise HTTPException(400, f"shuffle_mode phải là một trong {sorted(_VALID_SHUFFLE_MODES)}")
+    return mode
+
+
 @router.post("/exams", response_model=schemas.ExamSummary)
 def create_exam(body: schemas.ExamIn, db: Session = Depends(get_db), _: models.Admin = Depends(require_write)):
     exam = models.Exam(
@@ -210,6 +221,7 @@ def create_exam(body: schemas.ExamIn, db: Session = Depends(get_db), _: models.A
         duration_minutes=body.duration_minutes,
         is_active=body.is_active,
         show_leaderboard=body.show_leaderboard,
+        shuffle_mode=_normalize_shuffle_mode(body.shuffle_mode),
     )
     db.add(exam)
     db.commit()
@@ -244,6 +256,7 @@ def update_exam(
     exam.duration_minutes = body.duration_minutes
     exam.is_active = body.is_active
     exam.show_leaderboard = body.show_leaderboard
+    exam.shuffle_mode = _normalize_shuffle_mode(body.shuffle_mode)
     db.commit()
     db.refresh(exam)
     return _exam_summary(exam, db)
@@ -270,6 +283,7 @@ def duplicate_exam(exam_id: int, db: Session = Depends(get_db), _: models.Admin 
         duration_minutes=exam.duration_minutes,
         is_active=exam.is_active,
         show_leaderboard=exam.show_leaderboard,
+        shuffle_mode=exam.shuffle_mode or "none",
     )
     db.add(new_exam)
     db.flush()
